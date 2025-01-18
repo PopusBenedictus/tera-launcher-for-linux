@@ -1195,7 +1195,7 @@ static gpointer game_launcher_thread(gpointer data) {
 
   // Assemble the path. The stub launcher is a winelib app and wants a
   // Windows-like file path.
-  char launcher_path[PATH_MAX];
+  char launcher_path[FIXED_STRING_FIELD_SZ];
   snprintf(launcher_path, sizeof(launcher_path), "Z:%s\\Binaries\\TERA.exe",
            cwd);
 

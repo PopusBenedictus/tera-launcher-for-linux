@@ -71,7 +71,7 @@ typedef struct {
   const char *prefix_string;
   double progress;
   double last_update_time;
-  char pbar_label[FIXED_STRING_FIELD_SZ];
+  char pbar_label[FIXED_STRING_FIELD_SZ * 4];
   char download_now[FIXED_STRING_FIELD_SZ];
   char download_total[FIXED_STRING_FIELD_SZ];
   char download_speed[FIXED_STRING_FIELD_SZ];

@@ -43,7 +43,7 @@ target_link_libraries(teralib PRIVATE
 
 # Locate Wine headers (needed for teralib in this build)
 find_path(WINE_WINDOWS_INCLUDE_DIR NAMES "wine/windows"
-        HINTS "/usr/include" "/usr/local/include" "/opt/wine/include"
+        HINTS "/usr/include" "/usr/local/include" "/opt/wine/include" "/usr/include/wine"
 )
 if(NOT WINE_WINDOWS_INCLUDE_DIR)
     message(FATAL_ERROR "Could not find Wine headers. Please set WINE_WINDOWS_INCLUDE_DIR.")

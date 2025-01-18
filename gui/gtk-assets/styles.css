@@ -1,0 +1,70 @@
+.img_buttons {
+    background: transparent;
+    outline-color: transparent;
+    border-color: transparent;
+    color: transparent;
+    box-shadow: none;
+    padding: 0;
+}
+
+.img_exit_icons {
+    transition: filter 0.3s ease;
+    filter: invert(0.3);
+}
+
+.img_exit_icons:hover {
+    filter: invert(1);
+}
+
+.img_button_icons {
+    transition: filter 0.3s ease;
+}
+
+.img_button_icons:hover {
+    filter: brightness(1.2);
+}
+
+.img_textbox {
+    background: transparent;
+    outline-color: transparent;
+    border-color: transparent;
+    color: #000000;
+    box-shadow: none;
+}
+
+.logout_button {
+    background: transparent;
+    outline-color: transparent;
+    border-color: transparent;
+    color: transparent;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+}
+
+.transparent_bg {
+    background: transparent;
+    outline-color: transparent;
+    border-color: transparent;
+    color: transparent;
+    box-shadow: none;
+}
+
+.welcome_text {
+    color: #767c99;
+    font-size: 18px;
+}
+
+.footer_text {
+    color: #767c99;
+    font-size: 11px;
+}
+
+.repair-progress-bar progress {
+    background-color: #f5a105;
+}
+
+.repair-progress-bar text {
+    font-size: 16px;
+    color: white;
+}

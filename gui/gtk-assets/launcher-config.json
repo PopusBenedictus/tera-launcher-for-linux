@@ -1,0 +1,21 @@
+{
+  "auth_url": "http://server.terastarscape.com:81/tera/LauncherLoginAction",
+  "public_patch_url": "http://server.terastarscape.com:81/public/patch",
+  "public_launcher_assets_url": "http://server.terastarscape.com:81/public/launcher/images",
+  "server_list_url": "http://server.terastarscape.com:81/tera/ServerList?lang=en",
+  "wine_prefix_name": ".terastarscape",
+  "game_lang": "EUR",
+  "public_launcher_assets": [
+    "bg.jpg",
+    "bg.png",
+    "btn-auth.png",
+    "btn-close.png",
+    "btn-close1.png",
+    "btn-game-start.png",
+    "btn-logout.png",
+    "form.png",
+    "ico.png",
+    "logo.png"
+  ],
+  "service_name": "TERA Starscape"
+}

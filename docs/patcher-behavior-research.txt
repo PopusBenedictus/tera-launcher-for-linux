@@ -1,0 +1,68 @@
+Notes:
+
+Updates are packed in "cabinet" files that are actually just lzma compressed single files
+The "TERA API" uses this tool to perform decompression/compression: https://github.com/justkeepquiet/easylzma
+
+The root URL that would need to be provided before considering the context below will be whatever it is UP TO
+the prescribed root for the database file, the patch root, etc. We will call this the PUBLIC_ROOT but probably
+receive it from the user as PUBLIC_ROOT_URL
+
+Auth does not fall into this root, so we will need to store that separately as AUTH_URL
+
+The patcher/updater uses a version.ini file with this schema:
+[Download]
+Retry=Int          // Avoid infinite download attempts
+Wait=Int           // Wait between retries (in milliseconds)
+Version=Int        // Current patch level (if greater than existing version.ini, update)
+DL root=string     // Helps construct the patch file download path (e.g. http://SERVER_URI:PORT_NUM/PUBLIC_ROOT/DL_ROOT)
+DB file=string     // LZMA compressed SQLite database file containing manifest of files to fetch, hashes, etc.
+
+
+
+The database, server.db.xxx (where xxx is the version number), once decompressed to server.db, becomes a sqlite
+database. This database contains four tables:
+
+file_info: id, unique_path, path
+file_size: id, org_ver, new_ver, size
+file_version: id, version, size, hash
+version_info: version, version_path, reg_date
+
+Details on what each table is for--
+
+file_info: This table establishes a numeric ID for each game file, and maps it to its relative position within
+           the game directory. We can pretty much ignore unique_path, and just focus on path. NOTE: all paths
+           we are provided need to have their slashes converted to *nix ones.
+
+file_size: This is a map of the file IDs from file_info to their expected size in bytes when downloaded. Note that
+           these sizes are their compressed, archived size. We will need to validate this before and after extraction.
+
+file_version: This table includes duplicated file IDs where iterations of those files had occurred, thus listing
+              multiple versions of the same file at times. But most importantly, it has file hashes for validation
+              purposes. We can join this table and file_size together on ID and file_size.new_ver/file_version.version
+              to get one cohesive list of all the context we need for validation and downloading.
+
+version_info: We can use this to identify the latest release version of the game. We should make sure the latest version
+              in the database listed and the version.ini agree with each other, but otherwise we can ignore this for
+              now.
+
+Files are stored in cabinets at the download root in the version.ini. These cabinets have the naming convention
+IDNUM-VERIDNUM.cab meaning the endpoint to call when requesting an update file
+is http://PUBLIC_DL_ROOT_URI/IDNUM-VERIDNUM.db
+
+It should also be noted that, the unelzma tool will delete the source cabinet file when we extract the cabinets
+with it. So any validation of the cabinet should occur BEFORE trying to extract the file.
+
+To assist with patch/repair operations, the following queries are available at these gresource URIs in our app:
+Query: Generate directory tree for all files in the database so we can create all the directories/sub-directories
+URI: /com/tera/launcher/generate-file-paths.sql
+
+Query: Generate a list of all game files. Can be used to download all files or do hash/validate existing
+       ones/determine if there are any files missing.
+URI: /com/tera/launcher/generate-full-file-manifest.sql
+
+Query: Generate a manifest that reports a list of files added/updated between the current version of the game,
+       and the latest version of the game (if the latest version is current, it returns no results)
+URI: /com/tera/launcher/generate-update-manifest.sql
+
+There are two other queries for getting the count of fields for full file manifest and file paths because SQLite3
+cannot provide the count up front unless you run the query twice.

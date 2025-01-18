@@ -1,0 +1,31 @@
+<gresources>
+    <gresource prefix="/com/tera/launcher">
+        <!-- For the login pane -->
+        <file>bg.jpg</file>
+        <file>logo.png</file>
+        <file>form.png</file>
+        <file>btn-auth.png</file>
+        <file>btn-close1.png</file>
+
+        <!-- For the patch/play pane -->
+        <file>bg.png</file>
+        <file>ico.png</file>
+        <file>btn-logout.png</file>
+        <file>repair-btn.png</file>
+        <file>btn-game-start.png</file>
+        <file>btn-close.png</file>
+
+        <!-- Shared style config -->
+        <file>styles.css</file>
+
+        <!-- Includes required params for the launcher to work -->
+        <file>launcher-config.json</file>
+
+        <!-- Required for interacting with update servers -->
+        <file>generate-file-paths.sql</file>
+        <file>generate-file-paths-count.sql</file>
+        <file>generate-full-file-manifest.sql</file>
+        <file>generate-full-file-manifest-count.sql</file>
+        <file>generate-update-manifest.sql</file>
+    </gresource>
+</gresources>

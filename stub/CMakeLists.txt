@@ -1,0 +1,71 @@
+# stub/CMakeLists.txt
+cmake_minimum_required(VERSION 3.16)
+project(stub_launcher_project C)
+
+set(CMAKE_C_STANDARD 23)
+set(CMAKE_EXECUTABLE_SUFFIX ".exe")
+
+message(STATUS "Configuring stub launcher (will be built with winegcc).")
+
+# Find required packages for the stub launcher.
+find_package(CURL REQUIRED)
+find_package(PkgConfig REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_package(LibXml2 REQUIRED)
+pkg_check_modules(JANSSON REQUIRED jansson)
+pkg_check_modules(INIH REQUIRED inih)
+pkg_check_modules(LibXml2 REQUIRED)
+
+# Build the common libraries.
+add_library(serverlist_fetch STATIC
+        ${CMAKE_SOURCE_DIR}/serverlist_fetch.c
+        ${CMAKE_SOURCE_DIR}/serverlist.pb-c.c
+)
+target_include_directories(serverlist_fetch PRIVATE
+        ${INIH_INCLUDE_DIRS}
+        ${PROTOBUF_C_INCLUDE_DIRS}
+        ${LIBXML2_INCLUDE_DIRS}
+        ${CURL_INCLUDE_DIRS}
+)
+target_link_libraries(serverlist_fetch PRIVATE
+        ${CURL_LIBRARIES}
+        protobuf-c
+        xml2
+)
+
+add_library(teralib STATIC
+        ${CMAKE_SOURCE_DIR}/teralib.c
+        ${CMAKE_SOURCE_DIR}/serverlist.pb-c.c
+)
+target_link_libraries(teralib PRIVATE
+        ${CURL_LIBRARIES}
+        ${JANSSON_LIBRARIES}
+        protobuf-c
+)
+
+# Locate Wine headers (needed for teralib in this build)
+find_path(WINE_WINDOWS_INCLUDE_DIR NAMES "wine/windows"
+        HINTS "/usr/include" "/usr/local/include" "/opt/wine/include"
+)
+if(NOT WINE_WINDOWS_INCLUDE_DIR)
+    message(FATAL_ERROR "Could not find Wine headers. Please set WINE_WINDOWS_INCLUDE_DIR.")
+else()
+    message(STATUS "Found Wine Windows headers at: ${WINE_WINDOWS_INCLUDE_DIR}")
+endif()
+target_include_directories(teralib PRIVATE ${WINE_WINDOWS_INCLUDE_DIR})
+
+# Build the stub launcher executable.
+add_executable(stub_launcher ${CMAKE_CURRENT_SOURCE_DIR}/stub_launcher.c)
+set_target_properties(stub_launcher PROPERTIES LINK_FLAGS "-mconsole")
+target_link_libraries(stub_launcher PRIVATE
+        teralib
+        serverlist_fetch
+)
+
+# In stub/CMakeLists.txt, after you add your executable
+install(TARGETS stub_launcher RUNTIME DESTINATION .)
+
+# Also install the additional shared object file.
+# Note: Here we assume that the secondary file is named "stub_launcher.exe.so" and is in
+# the same directory as stub_launcher.exe. Adjust the path if needed.
+install(FILES "$<TARGET_FILE:stub_launcher>.so" DESTINATION .)

@@ -1,6 +1,8 @@
 cmake-build-debug
 cmake-build-debug/
-gui/gtk-assets
+.idea/
+gui/gtk-assets/*
+!gui/gtk-assets/
 !gui/gtk-assets/launcher-config.json
 !gui/gtk-assets/generate-file-paths.sql
 !gui/gtk-assets/generate-file-paths-count.sql
@@ -9,4 +11,3 @@ gui/gtk-assets
 !gui/gtk-assets/generate-update-manifest.sql
 !gui/gtk-assets/mylauncher.gresource.xml
 !gui/gtk-assets/styles.css
-!gui/gtk-assets/.assets_downloaded

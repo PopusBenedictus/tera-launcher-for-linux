@@ -1215,7 +1215,7 @@ static gpointer game_launcher_thread(gpointer data) {
   gchar *stub_launcher_path =
       g_build_filename(current_dir, "stub_launcher.exe", nullptr);
   if (!g_file_test(stub_launcher_path, G_FILE_TEST_EXISTS)) {
-    g_message("stub_launcher.exe not found at path: %hs", stub_launcher_path);
+    g_message("stub_launcher.exe not found at path: %s", stub_launcher_path);
     g_free(stub_launcher_path);
     // Re-enable the play button
     game_exit_callback(1, launch_data->ld);

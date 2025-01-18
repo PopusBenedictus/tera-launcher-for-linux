@@ -9,7 +9,7 @@
 #define SERVERLIST_FETCH_H
 
 #include <stddef.h>
-#include <unicode/utypes.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -15,7 +15,8 @@ extern "C" {
 #include <stdbool.h>
 
 /**
- * @brief Initializes the library, creating necessary synchronization primitives.
+ * @brief Initializes the library, creating necessary synchronization
+ * primitives.
  */
 void teralib_init(void);
 
@@ -33,10 +34,8 @@ void teralib_shutdown(void);
  * @param game_lang         Game language code (e.g., "EUR")
  * @param game_path         Path to the game executable
  */
-void set_credentials(const char *account_name,
-                     const char *characters_count,
-                     const char *ticket,
-                     const char *game_lang,
+void set_credentials(const char *account_name, const char *characters_count,
+                     const char *ticket, const char *game_lang,
                      const char *game_path);
 
 /**
@@ -75,7 +74,8 @@ const char *get_game_lang(void);
 const char *get_game_path(void);
 
 /**
- * @brief Returns whether the game is currently marked as running (an atomic bool).
+ * @brief Returns whether the game is currently marked as running (an atomic
+ * bool).
  *
  * @return True if the game is considered running, false otherwise.
  */
@@ -93,11 +93,8 @@ bool is_game_running(void);
  * @param server_list_url   URL for the server list fetch
  * @return                  The exit code of the game process, or -1 on error
  */
-int run_game(const char *account_name,
-             const char *characters_count,
-             const char *ticket,
-             const char *game_lang,
-             const char *game_path,
+int run_game(const char *account_name, const char *characters_count,
+             const char *ticket, const char *game_lang, const char *game_path,
              const char *server_list_url);
 
 /**

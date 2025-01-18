@@ -48,6 +48,7 @@ To build and run this launcher, you will need:
 - **SQLite3** development libraries.
 - **jansson** development libraries.
 - **libprotobuf-c** development libraries.
+- **MiniXML** development libraries.
 - Internet connection (for asset fetching).
 
 Below are the typical package names on various distros:
@@ -56,11 +57,11 @@ Below are the typical package names on various distros:
 
 ```bash
 sudo apt update
-sudo apt install build-essential cmake wine wine-devel \
+sudo apt install build-essential cmake wine libwine-dev \
                  python3 python3-pip python3-setuptools \
                  libgtk-4-dev libcurl4-openssl-dev libssl-dev \
                  libsqlite3-dev libjansson-dev libprotobuf-c-dev \
-                 libinih-dev pkg-config
+                 libmxml-dev pkg-config git
 ```
 
 > Depending on your distribution, package names for Wine or some dependencies (like `libgtk-4-dev`) may vary.
@@ -72,7 +73,7 @@ sudo dnf install gcc gcc-c++ cmake make wine-devel \
                  python3 python3-pip python3-setuptools \
                  gtk4-devel libcurl-devel openssl-devel \
                  sqlite-devel jansson-devel protobuf-c-devel \
-                 inih-devel pkg-config
+                 mxml-devel pkg-config git
 ```
 
 ### Arch Linux
@@ -80,7 +81,8 @@ sudo dnf install gcc gcc-c++ cmake make wine-devel \
 ```bash
 sudo pacman -S base-devel cmake wine \
              python python-pip \
-             gtk4 curl openssl sqlite jansson protobuf-c inih pkgconf
+             gtk4 curl openssl sqlite jansson \
+             protobuf-c mxml pkgconf git
 ```
 
 > On Arch, development headers are typically included with the main packages, but ensure you have all necessary *-devel or similar if your config requires it. **Be advised that debug symbols are stripped from all arch official packages and are not included in official repos.** That means if you use valgrind for memchecks/debugging purposes on Arch you will need to go to the arch wiki and learn how to acquire debug symbol packages for some things like wine, glibc, glib, etc.

@@ -11,9 +11,8 @@ message(STATUS "Configuring stub launcher (will be built with winegcc).")
 find_package(CURL REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(OpenSSL REQUIRED)
-find_package(LibXml2 REQUIRED)
 pkg_check_modules(JANSSON REQUIRED jansson)
-pkg_check_modules(LibXml2 REQUIRED)
+pkg_check_modules(MXML REQUIRED mxml)
 
 # Build the common libraries.
 add_library(serverlist_fetch STATIC
@@ -22,13 +21,13 @@ add_library(serverlist_fetch STATIC
 )
 target_include_directories(serverlist_fetch PRIVATE
         ${PROTOBUF_C_INCLUDE_DIRS}
-        ${LIBXML2_INCLUDE_DIRS}
         ${CURL_INCLUDE_DIRS}
+        ${MXML_INCLUDE_DIRS}
 )
 target_link_libraries(serverlist_fetch PRIVATE
         ${CURL_LIBRARIES}
         protobuf-c
-        xml2
+        ${MXML_LIBRARIES}
 )
 
 add_library(teralib STATIC
@@ -50,7 +49,9 @@ if(NOT WINE_WINDOWS_INCLUDE_DIR)
 else()
     message(STATUS "Found Wine Windows headers at: ${WINE_WINDOWS_INCLUDE_DIR}")
 endif()
-target_include_directories(teralib PRIVATE ${WINE_WINDOWS_INCLUDE_DIR})
+target_include_directories(teralib PRIVATE
+        ${WINE_WINDOWS_INCLUDE_DIR}
+)
 
 # Build the stub launcher executable.
 add_executable(stub_launcher ${CMAKE_CURRENT_SOURCE_DIR}/stub_launcher.c)
@@ -60,10 +61,6 @@ target_link_libraries(stub_launcher PRIVATE
         serverlist_fetch
 )
 
-# In stub/CMakeLists.txt, after you add your executable
+# Installation
 install(TARGETS stub_launcher RUNTIME DESTINATION .)
-
-# Also install the additional shared object file.
-# Note: Here we assume that the secondary file is named "stub_launcher.exe.so" and is in
-# the same directory as stub_launcher.exe. Adjust the path if needed.
 install(FILES "$<TARGET_FILE:stub_launcher>.so" DESTINATION .)

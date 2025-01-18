@@ -71,10 +71,10 @@ typedef struct {
   const char *prefix_string;
   double progress;
   double last_update_time;
-  char pbar_label[1024];
-  char download_now[1024];
-  char download_total[1024];
-  char download_speed[1024];
+  char pbar_label[FIXED_STRING_FIELD_SZ];
+  char download_now[FIXED_STRING_FIELD_SZ];
+  char download_total[FIXED_STRING_FIELD_SZ];
+  char download_speed[FIXED_STRING_FIELD_SZ];
 } ProgressData;
 
 /* --- HELPER FUNCTIONS --- */
@@ -285,7 +285,7 @@ static char *download_file(const char *url, const unsigned long expected_size,
  */
 static gboolean extract_cabinet(const char *cabinet_path, const char *dest_path,
                                 unsigned long expected_size) {
-  char command[1024];
+  char command[FIXED_STRING_FIELD_SZ];
   /* Since unelzma is a custom app we build for use with the launcher it is
    * expected to be bundled with the launcher */
   snprintf(command, sizeof(command), "./unelzma \"%s\" \"%s\"", cabinet_path,
@@ -543,7 +543,7 @@ static gboolean parse_version_ini() {
   // stored, uncompressed, in its unarchived form with possibly an archive
   // looking name.
   db_name = g_path_get_basename(db_url_path);
-  char suffix_strip[256] = {0};
+  char suffix_strip[FIXED_STRING_FIELD_SZ] = {0};
   snprintf(suffix_strip, sizeof(suffix_strip) - 1, ".%i.cab", current_version);
 
   // Honestly, if someone returns a suffix longer than the above for this, and
@@ -708,7 +708,7 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
     const unsigned long decompressed_size = sqlite3_column_int(stmt, 4);
     const unsigned char *hash_text = sqlite3_column_text(stmt, 5);
 
-    char progress_msg[1024];
+    char progress_msg[FIXED_STRING_FIELD_SZ];
     processed++;
     gchar *file_name = g_path_get_basename((const char *)path_text);
     snprintf(progress_msg, sizeof(progress_msg), "Scanning file %u of %i: %s",
@@ -806,7 +806,7 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
 
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     const unsigned char *dir_path = sqlite3_column_text(stmt, 0);
-    char progress_msg[256];
+    char progress_msg[FIXED_STRING_FIELD_SZ];
     processed++;
     snprintf(progress_msg, sizeof(progress_msg),
              "Checking directory %u of %i: %s", processed, directories_count,
@@ -842,7 +842,7 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
 
   for (const GList *l = files_to_update; l != NULL; l = l->next) {
     const FileInfo *info = l->data;
-    char progress_msg[256];
+    char progress_msg[FIXED_STRING_FIELD_SZ];
     gchar *file_name = g_path_get_basename(info->path);
     processed++;
     snprintf(progress_msg, sizeof(progress_msg),

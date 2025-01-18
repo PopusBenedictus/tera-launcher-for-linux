@@ -22,10 +22,10 @@
  * cause a crash.
  */
 typedef struct {
-  char user_no[256];
-  char auth_key[256];
-  char character_count[256];
-  char welcome_label_msg[256];
+  char user_no[FIXED_STRING_FIELD_SZ];
+  char auth_key[FIXED_STRING_FIELD_SZ];
+  char character_count[FIXED_STRING_FIELD_SZ];
+  char welcome_label_msg[FIXED_STRING_FIELD_SZ];
 } LoginData;
 
 /**
@@ -117,39 +117,39 @@ struct CurlResponse {
 /**
  * @brief Game language string from the embedded sjon resource.
  */
-static char game_lang_global[1024] = {0};
+static char game_lang_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Wineprefix folder name from the embedded json resource.
  */
-static char wineprefix_global[1024] = {0};
+static char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the patch url root.
  */
-static char patch_url_global[1024] = {0};
+static char patch_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the auth url root.
  */
-static char auth_url_global[1024] = {0};
+static char auth_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the server list url.
  */
-static char server_list_url_global[1024] = {0};
+static char server_list_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the service name that is displayed in the patch window
  * footer.
  */
-static char service_name_global[1024] = {0};
+static char service_name_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Used to store the final update thread message, if any, to update
  * progress bar label when the update resources are being thrown out.
  */
-static char update_finish_message[1024] = {0};
+static char update_finish_message[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a reference to the GUI stylesheet from the embedded resources.
@@ -241,7 +241,7 @@ static bool do_login(const char *username, const char *password,
       "Content-Type: application/x-www-form-urlencoded; charset=UTF-8");
 
   // Prepare POST data
-  char postfields[512];
+  char postfields[FIXED_STRING_FIELD_SZ];
   snprintf(postfields, sizeof(postfields), "login=%s&password=%s", username,
            password);
   g_message("Fields being sent: %s", postfields);

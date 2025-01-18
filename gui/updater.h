@@ -26,6 +26,8 @@ typedef struct {
   const char *public_patch_url;
 } UpdateData;
 
+constexpr int FIXED_STRING_FIELD_SZ = 16384;
+
 // Callback type for progress updates
 typedef void (*ProgressCallback)(double progress, const char *message,
                                  gpointer user_data);

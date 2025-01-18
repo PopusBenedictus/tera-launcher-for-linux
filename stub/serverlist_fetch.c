@@ -14,6 +14,8 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include <string.h>
 #include <curl/curl.h>
 #include <libxml/parser.h>

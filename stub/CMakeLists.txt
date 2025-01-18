@@ -13,7 +13,6 @@ find_package(PkgConfig REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(LibXml2 REQUIRED)
 pkg_check_modules(JANSSON REQUIRED jansson)
-pkg_check_modules(INIH REQUIRED inih)
 pkg_check_modules(LibXml2 REQUIRED)
 
 # Build the common libraries.
@@ -22,7 +21,6 @@ add_library(serverlist_fetch STATIC
         ${CMAKE_SOURCE_DIR}/serverlist.pb-c.c
 )
 target_include_directories(serverlist_fetch PRIVATE
-        ${INIH_INCLUDE_DIRS}
         ${PROTOBUF_C_INCLUDE_DIRS}
         ${LIBXML2_INCLUDE_DIRS}
         ${CURL_INCLUDE_DIRS}

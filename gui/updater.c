@@ -143,7 +143,7 @@ static int xfer_progress(void *p, curl_off_t dltotal, curl_off_t dlnow,
   curl_off_t speed;
   const double now = get_time_in_seconds();
 
-  if (now - data->last_update_time >= 0.5) {
+  if (now - data->last_update_time >= 0.15) {
     data->last_update_time = now;
     curl_easy_getinfo(curl, CURLINFO_SPEED_DOWNLOAD_T, &speed);
     print_size((double)dlnow, data->download_now, sizeof(data->download_now));
@@ -728,8 +728,7 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
         GFile *busted_file = g_file_new_for_path((const char *)path_text);
         if (!busted_file) {
           // TODO: Handle this better because ya know, if we can't replace this
-          // bad file then
-          //       the repair is not going to succeed :^)
+          // bad file then the repair is not going to succeed :^)
           g_printerr("Unable to delete '%s'", (const char *)path_text);
           continue;
         }

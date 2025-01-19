@@ -107,7 +107,7 @@ sudo pacman -S base-devel cmake wine \
 This project uses a top-level **CMakeLists.txt** that orchestrates the build of both the GUI launcher (native compilation) and a stub launcher (using winegcc). It also builds the [easylzma](https://github.com/justkeepquiet/easylzma) project as an external dependency.
 
 ### Why Winelib?
-Any application that replaces the original TERA Online launcher must interact with the Game client using certain win32 APIs not natively available on Linux. So our launcher includes a binary for the GUI application, a stub that masquerades as the OG TERA Online launcher to make the game happy, and some binaries for processing update files/file repairs (easylzma). Having the stub broken out helps address some thread model issues that prevent GTK from working correctly when using its built in async callback method handlers. Using _winelib specifically_ for building the stub launcher avoids having the user install mingw/msys as a separate build toolchain, while asking the user to install wine as a dependency for the project (its required anyway, might as well use it to build stuff).
+This launcher includes a GUI binary, a stub mimicking the original launcher for game compatibility, and binaries for updates and file repairs (easylzma). Separating the stub resolves threading issues with GTK's async callbacks. Using winelib to build the stub avoids requiring mingw/msys, leveraging Wine as a necessary project dependency.
 
 ### Configuring `launcher-config.json`
 

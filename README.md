@@ -64,7 +64,7 @@ to run the game (such as [GE-Proton](https://github.com/GloriousEggroll/proton-g
 which you can acquire following their instructions or a helper app like 
 [ProtonUp-Qt](https://davidotek.github.io/protonup-qt/)).
 
-**Installing custom versions of wine/proton is beyond the scope of these instructions**
+**Installing custom versions of wine/proton is beyond the scope of these instructions.**
 
 ### Ubuntu/Debian-based
 

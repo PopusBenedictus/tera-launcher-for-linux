@@ -1,6 +1,6 @@
 # TERA Launcher for Linux
 
-A community-created Linux launcher for TERA Online. This project is a **port** of a closed-source TERA launcher ([original here](https://github.com/justkeepquiet/tera-launcher)) designed to work on retail servers. It utilizes the original launcher's graphical assets to provide a comparable experience for Linux users. By integrating Wine, it allows you to launch the TERA Online game client seamlessly on Linux distributions.
+A community-created Linux launcher for TERA Online. This project is a **port** (in the loosest terms imaginable) of a closed-source TERA launcher ([original here](https://github.com/justkeepquiet/tera-launcher)) designed to work on retail servers. It utilizes the original launcher's graphical assets to provide a comparable experience for Linux users. By integrating Wine, it allows you to launch the TERA Online game client seamlessly on Linux distributions.
 
 > **Disclaimer**: This launcher is in the it-will-probably-work-but-is-quirked-up phase of development. It will continue to see improvements -- probably! As this launcher depends on third party graphical assets and its target TERA server is baked in at compile time, we will _not_ be distributing binaries.
 

@@ -51,7 +51,20 @@ To build and run this launcher, you will need:
 - **MiniXML** development libraries.
 - Internet connection (for asset fetching).
 
-Below are the typical package names on various distros:
+This has been tested to build on:
+- Ubuntu Noble (24.04 LTS). It will probably work on spins that use the same packages
+- Fedora Workstation 41
+- Arch Linux
+
+There may be other factors outside the launcher that could influence whether the game 
+launches successfully or not. You will want _at least_ the latest wine stable with 
+winelib/winegcc to build the application. You can, as explained later on down below, 
+specify a path to a custom wine build to choose a different version of wine with which 
+to run the game (such as [GE-Proton](https://github.com/GloriousEggroll/proton-ge-custom) 
+which you can acquire following their instructions or a helper app like 
+[ProtonUp-Qt](https://davidotek.github.io/protonup-qt/)).
+
+**Installing custom versions of wine/proton is beyond the scope of these instructions**
 
 ### Ubuntu/Debian-based
 
@@ -123,7 +136,7 @@ Before building, you **must** populate all values in the `launcher-config.json` 
        "bg.png",
        "btn-auth.png",
        "btn-close.png",
-       ...
+       "..."
      ],
      "service_name": "Your TERA Server"
    }

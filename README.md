@@ -167,6 +167,7 @@ You can copy or move these files into any directory where you want to keep your 
 ```bash
 cp build/bin/* /path/to/your/tera_game_folder/
 ```
+(If you're already in the `build` folder from earlier then replace `build/bin/*` with `bin/*`)
 
 In that folder, you will typically have:
 

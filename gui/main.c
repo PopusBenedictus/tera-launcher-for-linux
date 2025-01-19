@@ -1177,9 +1177,7 @@ static gpointer game_launcher_thread(gpointer data) {
     return nullptr;
   }
 
-  // Assemble the launcher path: "Z:" + current working directory with
-  // backslashes + "Binaries\\TERA.exe"
-  char cwd[PATH_MAX];
+  char cwd[FIXED_STRING_FIELD_SZ];
   if (!getcwd(cwd, sizeof(cwd))) {
     g_warning("Failed to get current working directory.");
     gtk_widget_set_sensitive(GTK_WIDGET(launch_data->ld->play_btn), TRUE);
@@ -1187,19 +1185,16 @@ static gpointer game_launcher_thread(gpointer data) {
     return nullptr;
   }
 
-  // Replace '/' with '\\' in cwd
+  // Replace '/' with '\\' in cwd.
   for (int i = 0; cwd[i]; i++) {
     if (cwd[i] == '/')
       cwd[i] = '\\';
   }
 
-  // Assemble the path. The stub launcher is a winelib app and wants a
-  // Windows-like file path.
   char launcher_path[FIXED_STRING_FIELD_SZ];
   snprintf(launcher_path, sizeof(launcher_path), "Z:%s\\Binaries\\TERA.exe",
            cwd);
 
-  // Prepare command-line arguments for stub_launcher
   const char *account_name = launch_data->ld->login_data.user_no;
   const char *characters_count =
       (launch_data->ld->login_data.character_count[0]
@@ -1209,23 +1204,21 @@ static gpointer game_launcher_thread(gpointer data) {
   const char *game_lang = game_lang_global;
   const char *game_path = launcher_path; // Use the dynamically assembled path
 
-  // Path to stub_launcher executable
-  // Assuming stub_launcher.exe is in the same directory as the main executable
   gchar *current_dir = g_get_current_dir();
   gchar *stub_launcher_path =
       g_build_filename(current_dir, "stub_launcher.exe", nullptr);
   if (!g_file_test(stub_launcher_path, G_FILE_TEST_EXISTS)) {
     g_message("stub_launcher.exe not found at path: %s", stub_launcher_path);
     g_free(stub_launcher_path);
-    // Re-enable the play button
     game_exit_callback(1, launch_data->ld);
     free(launch_data);
+    g_free(current_dir);
     return nullptr;
   }
 
-  // Launch stub_launcher and wait for it to exit
   GError *error = nullptr;
   gint exit_status = 0;
+  // Start with a copy of the parent environment.
   gchar **envp = g_get_environ();
 
   const gchar *custom_wine_dir = g_environ_getenv(envp, "TERA_CUSTOM_WINE_DIR");
@@ -1233,26 +1226,26 @@ static gpointer game_launcher_thread(gpointer data) {
   const gchar *old_path = g_environ_getenv(envp, "PATH");
 
   if (custom_wine_dir && *custom_wine_dir != '\0') {
+    // If a custom Wine dir is specified, update the environment accordingly.
     wine_path = g_build_filename(custom_wine_dir, "bin", "wine", nullptr);
     if (!g_file_test(wine_path, G_FILE_TEST_IS_EXECUTABLE)) {
       g_warning("Custom wine not found or not executable: %s", wine_path);
       g_free(wine_path);
       g_strfreev(envp);
+      g_free(stub_launcher_path);
+      g_free(current_dir);
       return FALSE;
     }
 
     const gchar *old_ld_library_path =
         g_environ_getenv(envp, "LD_LIBRARY_PATH");
     GString *new_ld_library_path = g_string_new("");
-
     g_string_append_printf(new_ld_library_path, "%s/lib:%s/lib64",
                            custom_wine_dir, custom_wine_dir);
-
     if (old_ld_library_path && *old_ld_library_path != '\0') {
       g_string_append_c(new_ld_library_path, ':');
       g_string_append(new_ld_library_path, old_ld_library_path);
     }
-
     envp = g_environ_setenv(envp, "LD_LIBRARY_PATH", new_ld_library_path->str,
                             TRUE);
     g_string_free(new_ld_library_path, TRUE);
@@ -1267,44 +1260,44 @@ static gpointer game_launcher_thread(gpointer data) {
     envp = g_environ_setenv(envp, "WINESERVER", wine_server_path, TRUE);
     g_free(wine_server_path);
 
-    const gchar *home_dir = g_get_home_dir();
-    if (home_dir) {
-      gchar *wine_prefix_path =
-          g_build_filename(home_dir, wineprefix_global, nullptr);
-      envp = g_environ_setenv(envp, "WINEPREFIX", wine_prefix_path, TRUE);
-      g_free(wine_prefix_path);
-    }
+    // Prepend the custom Wine bin directory to PATH.
+    gchar *wine_bin_path = g_build_filename(custom_wine_dir, "bin", nullptr);
+    GString *new_path = g_string_new(wine_bin_path);
+    g_string_append_c(new_path, G_SEARCHPATH_SEPARATOR);
+    g_string_append(new_path,
+                    old_path ? old_path : "/usr/local/bin:/usr/bin:/bin");
+    envp = g_environ_setenv(envp, "PATH", new_path->str, TRUE);
+    g_string_free(new_path, TRUE);
+    g_free(wine_bin_path);
   } else {
+    // No custom Wine directory provided.
     wine_path = g_find_program_in_path("wine");
     if (!wine_path) {
       g_warning(
           "System Wine not found on PATH, and TERA_CUSTOM_WINE_DIR not set.");
+      g_free(wine_path);
       g_strfreev(envp);
+      g_free(stub_launcher_path);
+      g_free(current_dir);
       return FALSE;
     }
   }
 
-  if (!old_path) {
-    old_path = "/usr/local/bin:/usr/bin:/bin";
-  } else {
-    g_message("Old PATH: %s", old_path);
-  }
-
-  if (custom_wine_dir) {
-    gchar *wine_bin_path = g_build_filename(custom_wine_dir, "bin", nullptr);
-    GString *new_path = g_string_new(wine_bin_path);
-    g_string_append_c(new_path, G_SEARCHPATH_SEPARATOR);
-    g_string_append(new_path, old_path);
-
-    envp = g_environ_setenv(envp, "PATH", new_path->str, TRUE);
-    g_string_free(new_path, TRUE);
-  } else {
-    envp = g_environ_setenv(envp, "PATH", old_path, TRUE);
-  }
-
+  // Set mandatory environment variables regardless of the Wine method.
   envp = g_environ_setenv(envp, "WINEDEBUG", "-all", TRUE);
   envp = g_environ_setenv(envp, "DXVK_LOG_LEVEL", "none", TRUE);
 
+  // Set the Wine prefix if home dir is available. Otherwise the default prefix
+  // will be used.
+  const gchar *home_dir = g_get_home_dir();
+  if (home_dir) {
+    gchar *wine_prefix_path =
+        g_build_filename(home_dir, wineprefix_global, nullptr);
+    envp = g_environ_setenv(envp, "WINEPREFIX", wine_prefix_path, TRUE);
+    g_free(wine_prefix_path);
+  }
+
+  // Assemble the argument list for stub_launcher.
   GPtrArray *argv_array = g_ptr_array_new();
   g_ptr_array_add(argv_array, g_strdup(stub_launcher_path));
   g_ptr_array_add(argv_array, g_strdup(account_name));
@@ -1314,34 +1307,32 @@ static gpointer game_launcher_thread(gpointer data) {
   g_ptr_array_add(argv_array, g_strdup(game_path));
   g_ptr_array_add(argv_array, g_strdup(server_list_url_global));
   g_ptr_array_add(argv_array, nullptr);
-  const auto argv_final = (gchar **)g_ptr_array_free(argv_array, FALSE);
+  gchar **argv_final = (gchar **)g_ptr_array_free(argv_array, FALSE);
 
-  // Use g_spawn_sync to launch the process and wait for it to complete
-  const gboolean success = g_spawn_sync(current_dir,     // working directory
-                                        argv_final,      // argv
-                                        envp,            // envp
-                                        G_SPAWN_DEFAULT, // flags
-                                        nullptr,         // child_setup
-                                        nullptr,         // user_data
-                                        nullptr,         // standard output
-                                        nullptr,         // standard error
-                                        &exit_status,    // exit status
-                                        &error           // error
-  );
+  // Spawn the process with our modified environment.
+  gboolean success = g_spawn_sync(current_dir,     // working directory
+                                  argv_final,      // argv
+                                  envp,            // modified environment
+                                  G_SPAWN_DEFAULT, // flags
+                                  nullptr,         // child_setup
+                                  nullptr,         // user_data
+                                  nullptr,         // standard output
+                                  nullptr,         // standard error
+                                  &exit_status,    // exit status
+                                  &error);         // error
 
   if (!success) {
     g_error_free(error);
-    error = nullptr;
   }
 
   g_message("Restore Game Launcher controls after game exit. Exit status: %i",
             exit_status);
   game_exit_callback(exit_status, launch_data->ld);
 
-  // Clean up
+  // Clean up.
   g_strfreev(argv_final);
   g_free(wine_path);
-  g_free(envp);
+  g_strfreev(envp);
   g_free(stub_launcher_path);
   g_free(current_dir);
   free(launch_data);

@@ -4,7 +4,7 @@ import json
 import os
 import urllib.request
 
-# Define the custom headers based on your provided example.
+# Pretend to be a user on Firefox accessing the webui.
 CUSTOM_HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0",
     "Accept": "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5",

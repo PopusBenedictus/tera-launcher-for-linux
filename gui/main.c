@@ -1702,6 +1702,20 @@ int main(const int argc, char **argv) {
   // Initialize LauncherData
   LauncherData ld = {nullptr};
 
+  // Initialize logs
+  // TODO: Make this configurable.
+  bool log_init_success;
+#ifdef NDEBUG
+  log_init_success = log_init(LOG_LEVEL_WARNING, "gui-app");
+#else
+  log_init_success = log_init(LOG_LEVEL_DEBUG, "gui-app");
+#endif
+
+  if (!log_init_success) {
+    g_object_unref(app);
+    return -1;
+  }
+
   // Register the resources
   g_resources_register(mylauncher_get_resource());
 

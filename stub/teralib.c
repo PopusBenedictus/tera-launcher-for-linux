@@ -6,7 +6,6 @@
  */
 
 #include <stdlib.h>
-#include <util.h>
 #include <wchar.h>
 
 #include "serverlist.pb-c.h"
@@ -235,7 +234,17 @@ static WCHAR *to_wstring(const char *s) {
 /**
  * @brief Initializes teralib, creating necessary synchronization objects.
  */
-void teralib_init(void) {
+bool teralib_init(void) {
+  // Initialize logs
+  // TODO: Make this configurable.
+  bool log_init_success;
+#ifdef NDEBUG
+  log_init_success = log_init(LOG_LEVEL_WARNING, "stub");
+#else
+  log_init_success = log_init(LOG_LEVEL_DEBUG, "stub");
+#endif
+  if (!log_init_success)
+    return false;
   InitializeCriticalSection(&g_window_handle_cs);
   g_gameStatusEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
   g_windowCreatedEvent = CreateEvent(NULL, FALSE, FALSE, NULL);

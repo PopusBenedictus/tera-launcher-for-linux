@@ -10,13 +10,13 @@
 /**
  * @brief Temporary buffer size for string operations on ascii/utf8 strings
  */
-#define TMP_BUFFER_SZ (FIXED_STRING_FIELD_SZ * 2)
+#define TMP_BUFFER_SZ (FIXED_STRING_FIELD_SZ * 8)
 
 /**
  * @brief Temporary buffer size for string operations on utf16le strings (e.g.
  * WCHAR, wchar_t)
  */
-#define WTMP_BUFFER_SZ (FIXED_STRING_FIELD_SZ * 4)
+#define WTMP_BUFFER_SZ (FIXED_STRING_FIELD_SZ * 16)
 
 bool str_copy_formatted(char *buffer, size_t *size_out, size_t size_in,
                         char const *format, ...) {

@@ -21,6 +21,8 @@ pkg_check_modules(JANSSON REQUIRED jansson)
 pkg_check_modules(PROTOBUF_C REQUIRED libprotobuf-c)
 pkg_check_modules(GTK4 REQUIRED gtk4)
 
+add_compile_definitions(HAVE_GLIB=1)
+
 include_directories(
         ${CURL_INCLUDE_DIRS}
         ${JANSSON_INCLUDE_DIRS}

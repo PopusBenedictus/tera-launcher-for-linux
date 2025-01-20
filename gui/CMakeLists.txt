@@ -81,6 +81,7 @@ target_link_libraries(tera_launcher_for_linux PRIVATE
         ${CURL_LIBRARIES}
         ${OPENSSL_LIBRARIES}
         SQLite::SQLite3
+        terautils
 )
 target_compile_options(tera_launcher_for_linux PRIVATE ${GTK4_CFLAGS_OTHER})
 

@@ -5,8 +5,8 @@
  * http://www.wtfpl.net/ for more details.
  */
 
-#include <util.h>
 #include <stdlib.h>
+#include <util.h>
 #include <wchar.h>
 
 #include "serverlist.pb-c.h"

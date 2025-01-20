@@ -29,6 +29,7 @@ target_include_directories(serverlist_fetch PRIVATE
         ${MXML_INCLUDE_DIRS}
 )
 target_link_libraries(serverlist_fetch PRIVATE
+        ${TERAUTILS_LIB}
         ${CURL_LIBRARIES}
         protobuf-c
         ${MXML_LIBRARIES}
@@ -39,6 +40,7 @@ add_library(teralib STATIC
         ${CMAKE_SOURCE_DIR}/serverlist.pb-c.c
 )
 target_link_libraries(teralib PRIVATE
+        ${TERAUTILS_LIB}
         ${CURL_LIBRARIES}
         ${JANSSON_LIBRARIES}
         protobuf-c
@@ -61,6 +63,11 @@ target_include_directories(teralib PRIVATE
 # Build the stub launcher executable.
 add_executable(stub_launcher ${CMAKE_CURRENT_SOURCE_DIR}/stub_launcher.c)
 set_target_properties(stub_launcher PROPERTIES LINK_FLAGS "-mconsole")
+
+target_include_directories(stub_launcher PRIVATE
+        ${TERAUTILS_INCLUDE_DIR}
+)
+
 target_link_libraries(stub_launcher PRIVATE
         ${TERAUTILS_LIB}
         teralib

@@ -100,12 +100,18 @@ static size_t write_data(void *ptr, size_t size, size_t nmemb, void *stream) {
 // Helper to print size in KB or MB
 static void print_size(const double bytes, char *out, const size_t sz) {
   // 1 MB = 1024 * 1024 bytes
+  bool success;
+  size_t required;
   if (bytes < 1024.0 * 1024.0) {
     // Print in KB
-    snprintf(out, sz, "%.2f KB", bytes / 1024.0);
+    success = str_copy_formatted(out, &required, sz, "%.2f KB", bytes / 1024.0);
   } else {
     // Print in MB
-    snprintf(out, sz, "%.2f MB", bytes / (1024.0 * 1024.0));
+    success = str_copy_formatted(out, &required, sz, "%.2f MB", bytes / (1024.0 * 1024.0));
+  }
+
+  if (!success) {
+    g_error("Failed to allocate %zu bytes for file size update into buffer of %zu bytes.", required, sz);
   }
 }
 
@@ -114,13 +120,19 @@ static void print_speed(curl_off_t bytes_per_second, char *out,
                         const size_t sz) {
   // Convert bytes/sec -> bits/sec
   double bits_per_second = (double)bytes_per_second * 8.0;
+  bool success;
+  size_t required;
   // 1 Mbit/s = 1,048,576 bits/s = 1024 * 1024
   if (bits_per_second < 1024.0 * 1024.0) {
     // Print in kb/s
-    snprintf(out, sz, "%.2f kb/s", bits_per_second / 1024.0);
+    success = str_copy_formatted(out, &required, sz, "%.2f kb/s", bits_per_second / 1024.0);
   } else {
     // Print in Mb/s
-    snprintf(out, sz, "%.2f Mb/s", bits_per_second / (1024.0 * 1024.0));
+    success = str_copy_formatted(out, &required, sz, "%.2f Mb/s", bits_per_second / (1024.0 * 1024.0));
+  }
+
+  if (!success) {
+    g_error("Failed to allocate %zu bytes for data rate update into buffer of %zu bytes.", required, sz);
   }
 }
 
@@ -148,9 +160,13 @@ static int xfer_progress(void *p, curl_off_t dltotal, curl_off_t dlnow,
     print_size((double)dltotal, data->download_total,
                sizeof(data->download_total));
     print_speed(speed, data->download_speed, sizeof(data->download_speed));
-    snprintf(data->pbar_label, sizeof(data->pbar_label),
-             "Progress: ( %s / %s ) %s", data->download_now,
-             data->download_total, data->download_speed);
+    size_t required;
+    constexpr size_t pbar_sz = sizeof(data->pbar_label);
+    const bool success = str_copy_formatted(data->pbar_label, &required, pbar_sz,
+                                      data->download_now, data->download_total, data->download_speed);
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for progress bar update into buffer of %zu bytes.", required, pbar_sz);
+    }
     update_progress(data->download_callback, (double)dlnow / (double)dltotal,
                     data->pbar_label, data->user_data);
   }
@@ -237,16 +253,15 @@ static char *download_file(const char *url, const unsigned long expected_size,
       break;
     }
 
-    fprintf(stderr, "curl_easy_perform() failed: %s\n",
-            curl_easy_strerror(res));
+    g_warning("curl_easy_perform() failed: %s", curl_easy_strerror(res));
+
     retry_count++;
 
     if (retry_count < max_retries) {
-      fprintf(stderr, "Retrying in %d seconds... (retry %d of %d)\n",
-              retry_delay_ms / 1000, retry_count, max_retries);
+      g_warning("Retrying in %d seconds... (retry %d of %d)", retry_delay_ms / 1000, retry_count, max_retries);
       sleep(retry_delay_ms / 1000);
     } else {
-      fprintf(stderr, "Max retries reached. Exiting.\n");
+      g_warning("Max retries reached. Exiting.");
     }
   } while (retry_count < max_retries);
   fclose(fp);
@@ -286,12 +301,17 @@ static gboolean extract_cabinet(const char *cabinet_path, const char *dest_path,
   char command[FIXED_STRING_FIELD_SZ];
   /* Since unelzma is a custom app we build for use with the launcher it is
    * expected to be bundled with the launcher */
-  snprintf(command, sizeof(command), "./unelzma \"%s\" \"%s\"", cabinet_path,
-           dest_path);
+  size_t required;
+  const bool success = str_copy_formatted(command, &required, FIXED_STRING_FIELD_SZ,
+    "./unelzma \"%s\" \"%s\"", cabinet_path, dest_path);
+  if (!success) {
+    g_error("Failed to allocated %zu bytes for command path string in buffer of size %zu bytes.",
+      required, FIXED_STRING_FIELD_SZ);
+  }
   if (system(command) != 0)
     return FALSE;
 
-  unsigned long actual_size = get_file_size(dest_path);
+  const unsigned long actual_size = get_file_size(dest_path);
   if (expected_size > 0 && actual_size != expected_size)
     return FALSE;
   return TRUE;
@@ -311,7 +331,12 @@ static gboolean download_version_ini(UpdateData *data) {
   GError *error = nullptr;
   gchar *current_dir = g_get_current_dir();
   char dest_path[PATH_MAX];
-  snprintf(dest_path, sizeof(dest_path), "%s/%s", current_dir, "version.ini");
+  size_t required;
+  const bool success = str_copy_formatted(dest_path, &required, PATH_MAX,
+    "%s/%s", current_dir, "version.ini");
+  if (!success) {
+    g_error("Failed to allocate %zu bytes for file path into buffer of %zu bytes.", required, PATH_MAX);
+  }
   GFile *src_file = g_file_new_for_path(version_ini_path);
   GFile *dest_file = g_file_new_for_path(dest_path);
   g_free(current_dir);
@@ -542,7 +567,12 @@ static gboolean parse_version_ini() {
   // looking name.
   db_name = g_path_get_basename(db_url_path);
   char suffix_strip[FIXED_STRING_FIELD_SZ] = {0};
-  snprintf(suffix_strip, sizeof(suffix_strip) - 1, ".%i.cab", current_version);
+  size_t required;
+  const bool success = str_copy_formatted(suffix_strip, &required, FIXED_STRING_FIELD_SZ,
+    ".%i.cab", current_version);
+  if (!success) {
+    g_error("Unable to allocate %zu bytes for suffix into buffer of %zu bytes", required, FIXED_STRING_FIELD_SZ);
+  }
 
   // Honestly, if someone returns a suffix longer than the above for this, and
   // we can't strip the suffix off because of it, it's on them. This won't
@@ -709,8 +739,13 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
     char progress_msg[FIXED_STRING_FIELD_SZ];
     processed++;
     gchar *file_name = g_path_get_basename((const char *)path_text);
-    snprintf(progress_msg, sizeof(progress_msg), "Scanning file %u of %i: %s",
-             processed, record_count, (const char *)file_name);
+    size_t required;
+    const bool success = str_copy_formatted(progress_msg, &required, FIXED_STRING_FIELD_SZ,
+      "Scanning file %u of %i: %s", processed, record_count, (const char *)file_name);
+    if (!success) {
+      g_error("Unable to allocate %zu bytes for progress message into buffer of %zu bytes.",
+        required, FIXED_STRING_FIELD_SZ);
+    }
     g_free(file_name);
     update_progress(callback, (double)processed / (double)record_count,
                     progress_msg, user_data);
@@ -804,10 +839,14 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     const unsigned char *dir_path = sqlite3_column_text(stmt, 0);
     char progress_msg[FIXED_STRING_FIELD_SZ];
+    size_t required;
     processed++;
-    snprintf(progress_msg, sizeof(progress_msg),
-             "Checking directory %u of %i: %s", processed, directories_count,
-             (const char *)dir_path);
+    const bool success = str_copy_formatted(progress_msg, &required, FIXED_STRING_FIELD_SZ,
+      "Checking directory %u of %i: %s", processed, directories_count, (const char *)dir_path);
+    if (!success) {
+      g_error("Unable to allocate %zu bytes for progress bar message into buffer of %zu bytes.",
+        required, FIXED_STRING_FIELD_SZ);
+    }
     update_progress(callback, (double)processed / directories_count,
                     progress_msg, user_data);
     if (g_file_test((const gchar *)dir_path, G_FILE_TEST_EXISTS)) {
@@ -840,11 +879,15 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
   for (const GList *l = files_to_update; l != NULL; l = l->next) {
     const FileInfo *info = l->data;
     char progress_msg[FIXED_STRING_FIELD_SZ];
+    size_t required;
     gchar *file_name = g_path_get_basename(info->path);
     processed++;
-    snprintf(progress_msg, sizeof(progress_msg),
-             "Downloading file %u of %u: %s", processed, total_files,
-             file_name);
+    bool success = str_copy_formatted(progress_msg, &required, FIXED_STRING_FIELD_SZ,
+      "Downloading file %u of %u: %s", processed, total_files, file_name);
+    if (!success) {
+      g_error("Unable to allocate %zu bytes for progress message into buffer of %zu bytes.",
+        required, FIXED_STRING_FIELD_SZ);
+    }
     const double current_progress = (double)processed / total_files;
     update_progress(callback, current_progress, progress_msg, user_data);
 
@@ -870,7 +913,7 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
      * Create a temporary file for the extracted content.
      */
     char temp_extract[] = "/tmp/extractedXXXXXX";
-    int fd = mkstemp(temp_extract);
+    const int fd = mkstemp(temp_extract);
     if (fd == -1) {
       g_printerr("Error creating temporary file for extraction.\n");
       unlink(cabinet_path);
@@ -880,11 +923,11 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
     }
     close(fd);
 
-    /* In a production updater, the expected decompressed size would come from
-       the manifest. Here, we pass 0 to indicate no size check (or update as
-       needed). */
-    snprintf(progress_msg, sizeof(progress_msg), "Extracting file %u of %u: %s",
-             processed, total_files, file_name);
+    success = str_copy_formatted(progress_msg, &required, FIXED_STRING_FIELD_SZ,
+      "Extracting file %u of %u: %s", processed, total_files, file_name);
+    if (!success) {
+      g_error("Unable to allocate %zu bytes for progress message into buffer of %zu bytes.");
+    }
     g_free(file_name);
     update_progress(callback, current_progress, progress_msg, user_data);
     update_progress(download_callback, 1.0, "Progress: Done!", user_data);

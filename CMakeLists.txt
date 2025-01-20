@@ -33,7 +33,7 @@ ExternalProject_Add(stub_launcher_ex
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DCMAKE_C_COMPILER=winegcc
         -DTERAUTILS_LIB=$<TARGET_FILE:terautils>
-        -DTERAUTILS_INCLUDE_DIR=${CMAKE_SOURCE_DIR}/terautils
+        -DTERAUTILS_INCLUDE_DIR=${CMAKE_SOURCE_DIR}/utils
         INSTALL_COMMAND    ${CMAKE_COMMAND} --build . --target install
 )
 

@@ -7,6 +7,9 @@ set(CMAKE_EXECUTABLE_SUFFIX ".exe")
 
 message(STATUS "Configuring stub launcher (will be built with winegcc).")
 
+set(TERAUTILS_LIB "" CACHE STRING "Path to the compiled terautils library")
+set(TERAUTILS_INCLUDE_DIR "" CACHE PATH "Path to the terautils includes")
+
 # Find required packages for the stub launcher.
 find_package(CURL REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -20,6 +23,7 @@ add_library(serverlist_fetch STATIC
         ${CMAKE_SOURCE_DIR}/serverlist.pb-c.c
 )
 target_include_directories(serverlist_fetch PRIVATE
+        ${TERAUTILS_INCLUDE_DIR}
         ${PROTOBUF_C_INCLUDE_DIRS}
         ${CURL_INCLUDE_DIRS}
         ${MXML_INCLUDE_DIRS}
@@ -50,6 +54,7 @@ else()
     message(STATUS "Found Wine Windows headers at: ${WINE_WINDOWS_INCLUDE_DIR}")
 endif()
 target_include_directories(teralib PRIVATE
+        ${TERAUTILS_INCLUDE_DIR}
         ${WINE_WINDOWS_INCLUDE_DIR}
 )
 
@@ -57,6 +62,7 @@ target_include_directories(teralib PRIVATE
 add_executable(stub_launcher ${CMAKE_CURRENT_SOURCE_DIR}/stub_launcher.c)
 set_target_properties(stub_launcher PROPERTIES LINK_FLAGS "-mconsole")
 target_link_libraries(stub_launcher PRIVATE
+        ${TERAUTILS_LIB}
         teralib
         serverlist_fetch
 )

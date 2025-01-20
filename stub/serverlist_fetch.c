@@ -12,6 +12,7 @@
 
 #include "serverlist_fetch.h"
 #include "serverlist.pb-c.h"
+#include <util.h>
 #include <arpa/inet.h>
 #include <curl/curl.h>
 #include <errno.h>
@@ -19,9 +20,7 @@
 #include <inttypes.h>
 #include <protobuf-c/protobuf-c.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 /* Mini-XML */
 #include <mxml.h>

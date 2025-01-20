@@ -6,14 +6,13 @@
  */
 
 #include "updater.h"
+#include "util.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>
 #include <glib.h>
 #include <gtk/gtk.h>
 #include <jansson.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
 /**

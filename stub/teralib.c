@@ -5,12 +5,9 @@
  * http://www.wtfpl.net/ for more details.
  */
 
-#include <stdarg.h>
-#include <stdio.h>
+#include <util.h>
 #include <stdlib.h>
-#include <string.h>
 #include <wchar.h>
-#include <windows.h>
 
 #include "serverlist.pb-c.h"
 #include "serverlist_fetch.h"

@@ -241,8 +241,12 @@ static bool do_login(const char *username, const char *password,
 
   // Prepare POST data
   char postfields[FIXED_STRING_FIELD_SZ];
-  snprintf(postfields, sizeof(postfields), "login=%s&password=%s", username,
-           password);
+  size_t required;
+  bool success = str_copy_formatted(postfields, &required, FIXED_STRING_FIELD_SZ, "login=%s&password=%s",
+    username, password);
+  if (!success) {
+    g_error("Failed to allocate %zu bytes for postfields into buffer of %zu bytes.", required, FIXED_STRING_FIELD_SZ);
+  }
   g_message("Fields being sent: %s", postfields);
 
   // Set cURL options
@@ -256,7 +260,7 @@ static bool do_login(const char *username, const char *password,
 
   // Perform the request
   CURLcode res = curl_easy_perform(curl);
-  bool success = false;
+  success = false;
   if (res == CURLE_OK) {
     long http_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
@@ -541,12 +545,16 @@ static GtkWidget *create_patch_overlay(LauncherData *ld) {
   const time_t t = time(nullptr);
   const struct tm *tm_info = localtime(&t);
   const int year = 1900 + tm_info->tm_year;
-  char footer_str[1024] = {0};
-  const size_t footer_sz =
-      snprintf(footer_str, sizeof(footer_str), "© %i %s. All Rights Reserved.",
-               year, service_name_global);
-  if (footer_sz <= 0)
-    g_error("Service name input renders invalid footer string.");
+  constexpr int FOOTER_SZ = 1024;
+  char footer_str[FOOTER_SZ] = {0};
+  size_t required;
+  const bool success = str_copy_formatted(footer_str, &required, FOOTER_SZ,
+    "© %i %s. All Rights Reserved.", year, service_name_global);
+
+  if (!success) {
+    g_error("Failed to allocate %zu bytes for footer string in buffer of size %zu bytes.",
+      required, FIXED_STRING_FIELD_SZ);
+  }
 
   ld->footer_label = gtk_label_new(footer_str);
   gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->footer_label);
@@ -1191,8 +1199,13 @@ static gpointer game_launcher_thread(gpointer data) {
   }
 
   char launcher_path[FIXED_STRING_FIELD_SZ];
-  snprintf(launcher_path, sizeof(launcher_path), "Z:%s\\Binaries\\TERA.exe",
-           cwd);
+  size_t required;
+  const bool success = str_copy_formatted(launcher_path, &required, FIXED_STRING_FIELD_SZ,
+    "Z:%s\\Binaries\\TERA.exe", cwd);
+  if (!success) {
+    g_error("Failed to allocate %zu bytes for binary path string in buffer of size %zu bytes.",
+      required, FIXED_STRING_FIELD_SZ);
+  }
 
   const char *account_name = launch_data->ld->login_data.user_no;
   const char *characters_count =
@@ -1309,7 +1322,7 @@ static gpointer game_launcher_thread(gpointer data) {
   gchar **argv_final = (gchar **)g_ptr_array_free(argv_array, FALSE);
 
   // Spawn the process with our modified environment.
-  gboolean success = g_spawn_sync(current_dir,     // working directory
+  gboolean spawn_success = g_spawn_sync(current_dir,     // working directory
                                   argv_final,      // argv
                                   envp,            // modified environment
                                   G_SPAWN_DEFAULT, // flags
@@ -1320,7 +1333,7 @@ static gpointer game_launcher_thread(gpointer data) {
                                   &exit_status,    // exit status
                                   &error);         // error
 
-  if (!success) {
+  if (!spawn_success) {
     g_error_free(error);
   }
 
@@ -1414,9 +1427,14 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
             sizeof(ld->login_data.character_count) - 1);
 
     // Prepare user welcome label on patch screen.
-    snprintf(ld->login_data.welcome_label_msg,
-             sizeof(ld->login_data.welcome_label_msg), "Welcome, <b>%s!</b>",
-             username);
+    size_t required;
+    const bool success = str_copy_formatted(ld->login_data.welcome_label_msg,
+    &required, FIXED_STRING_FIELD_SZ, "Welcome, <b>%s!</b>",
+           username);
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for welcome string in buffer of size %zu bytes.",
+        required, FIXED_STRING_FIELD_SZ);
+    }
 
     gtk_label_set_markup(GTK_LABEL(ld->welcome_label),
                          ld->login_data.welcome_label_msg);

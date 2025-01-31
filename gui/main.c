@@ -242,10 +242,13 @@ static bool do_login(const char *username, const char *password,
   // Prepare POST data
   char postfields[FIXED_STRING_FIELD_SZ];
   size_t required;
-  bool success = str_copy_formatted(postfields, &required, FIXED_STRING_FIELD_SZ, "login=%s&password=%s",
-    username, password);
+  bool success =
+      str_copy_formatted(postfields, &required, FIXED_STRING_FIELD_SZ,
+                         "login=%s&password=%s", username, password);
   if (!success) {
-    g_error("Failed to allocate %zu bytes for postfields into buffer of %zu bytes.", required, FIXED_STRING_FIELD_SZ);
+    g_error(
+        "Failed to allocate %zu bytes for postfields into buffer of %zu bytes.",
+        required, FIXED_STRING_FIELD_SZ);
   }
   g_message("Fields being sent: %s", postfields);
 
@@ -549,11 +552,13 @@ static GtkWidget *create_patch_overlay(LauncherData *ld) {
   char footer_str[FOOTER_SZ] = {0};
   size_t required;
   const bool success = str_copy_formatted(footer_str, &required, FOOTER_SZ,
-    "© %i %s. All Rights Reserved.", year, service_name_global);
+                                          "© %i %s. All Rights Reserved.", year,
+                                          service_name_global);
 
   if (!success) {
-    g_error("Failed to allocate %zu bytes for footer string in buffer of size %zu bytes.",
-      required, FIXED_STRING_FIELD_SZ);
+    g_error("Failed to allocate %zu bytes for footer string in buffer of size "
+            "%zu bytes.",
+            required, FIXED_STRING_FIELD_SZ);
   }
 
   ld->footer_label = gtk_label_new(footer_str);
@@ -1200,11 +1205,13 @@ static gpointer game_launcher_thread(gpointer data) {
 
   char launcher_path[FIXED_STRING_FIELD_SZ];
   size_t required;
-  const bool success = str_copy_formatted(launcher_path, &required, FIXED_STRING_FIELD_SZ,
-    "Z:%s\\Binaries\\TERA.exe", cwd);
+  const bool success =
+      str_copy_formatted(launcher_path, &required, FIXED_STRING_FIELD_SZ,
+                         "Z:%s\\Binaries\\TERA.exe", cwd);
   if (!success) {
-    g_error("Failed to allocate %zu bytes for binary path string in buffer of size %zu bytes.",
-      required, FIXED_STRING_FIELD_SZ);
+    g_error("Failed to allocate %zu bytes for binary path string in buffer of "
+            "size %zu bytes.",
+            required, FIXED_STRING_FIELD_SZ);
   }
 
   const char *account_name = launch_data->ld->login_data.user_no;
@@ -1323,15 +1330,15 @@ static gpointer game_launcher_thread(gpointer data) {
 
   // Spawn the process with our modified environment.
   gboolean spawn_success = g_spawn_sync(current_dir,     // working directory
-                                  argv_final,      // argv
-                                  envp,            // modified environment
-                                  G_SPAWN_DEFAULT, // flags
-                                  nullptr,         // child_setup
-                                  nullptr,         // user_data
-                                  nullptr,         // standard output
-                                  nullptr,         // standard error
-                                  &exit_status,    // exit status
-                                  &error);         // error
+                                        argv_final,      // argv
+                                        envp,            // modified environment
+                                        G_SPAWN_DEFAULT, // flags
+                                        nullptr,         // child_setup
+                                        nullptr,         // user_data
+                                        nullptr,         // standard output
+                                        nullptr,         // standard error
+                                        &exit_status,    // exit status
+                                        &error);         // error
 
   if (!spawn_success) {
     g_error_free(error);
@@ -1429,11 +1436,12 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
     // Prepare user welcome label on patch screen.
     size_t required;
     const bool success = str_copy_formatted(ld->login_data.welcome_label_msg,
-    &required, FIXED_STRING_FIELD_SZ, "Welcome, <b>%s!</b>",
-           username);
+                                            &required, FIXED_STRING_FIELD_SZ,
+                                            "Welcome, <b>%s!</b>", username);
     if (!success) {
-      g_error("Failed to allocate %zu bytes for welcome string in buffer of size %zu bytes.",
-        required, FIXED_STRING_FIELD_SZ);
+      g_error("Failed to allocate %zu bytes for welcome string in buffer of "
+              "size %zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
     }
 
     gtk_label_set_markup(GTK_LABEL(ld->welcome_label),

@@ -104,7 +104,8 @@ static void assign_utf16_field(ProtobufCBinaryData *field, const char *cstr) {
     return;
   iconv_t cd = iconv_open("UTF-16LE", "UTF-8");
   if (cd == (iconv_t)-1) {
-    log_message_safe(LOG_LEVEL_ERROR, "Failed to open iconv descriptor: %s", strerror(errno));
+    log_message_safe(LOG_LEVEL_ERROR, "Failed to open iconv descriptor: %s",
+                     strerror(errno));
     return;
   }
   size_t ascii_len = strlen(cstr);
@@ -234,7 +235,8 @@ static char *get_inner_xml(mxml_node_t *node) {
       child = mxmlGetNextSibling(child);
       continue;
     }
-    int ret = mxmlSaveString(child, buf, FIXED_STRING_FIELD_SZ, MXML_NO_CALLBACK);
+    int ret =
+        mxmlSaveString(child, buf, FIXED_STRING_FIELD_SZ, MXML_NO_CALLBACK);
     if (ret < 0) {
       free(buf);
       child = mxmlGetNextSibling(child);
@@ -298,12 +300,14 @@ static char *get_xml_child_content(mxml_node_t *parent,
 static char *find_character_count_for_id(const char *characters_count,
                                          const char *id_str) {
   if (!characters_count || !id_str) {
-    log_message_safe(LOG_LEVEL_ERROR, "Invalid arguments to find_character_count_for_id");
+    log_message_safe(LOG_LEVEL_ERROR,
+                     "Invalid arguments to find_character_count_for_id");
     return NULL;
   }
   char *cc_copy = strdup(characters_count);
   if (!cc_copy) {
-    log_message_safe(LOG_LEVEL_ERROR, "Memory allocation failed in find_character_count_for_id");
+    log_message_safe(LOG_LEVEL_ERROR,
+                     "Memory allocation failed in find_character_count_for_id");
     return NULL;
   }
   char *result = NULL;
@@ -318,7 +322,9 @@ static char *find_character_count_for_id(const char *characters_count,
       if (comma_ptr) {
         result = strdup(comma_ptr + 1);
         if (!result)
-          log_message_safe(LOG_LEVEL_ERROR, "Memory allocation failed for result in find_character_count_for_id");
+          log_message_safe(LOG_LEVEL_ERROR,
+                           "Memory allocation failed for result in "
+                           "find_character_count_for_id");
       }
       break;
     }
@@ -335,14 +341,16 @@ static void append_suffix_and_assign_utf16(ProtobufCBinaryData *field,
                                            const char *original_str,
                                            const char *suffix) {
   if (!field || !original_str || !suffix) {
-    log_message_safe(LOG_LEVEL_ERROR, "Invalid arguments to append_suffix_and_assign_utf16");
+    log_message_safe(LOG_LEVEL_ERROR,
+                     "Invalid arguments to append_suffix_and_assign_utf16");
     return;
   }
   size_t orig_len = strlen(original_str);
   size_t suffix_len = strlen(suffix);
   char *appended = (char *)malloc(orig_len + suffix_len + 1);
   if (!appended) {
-    log_message_safe(LOG_LEVEL_ERROR,
+    log_message_safe(
+        LOG_LEVEL_ERROR,
         "Memory allocation failed in append_suffix_and_assign_utf16");
     return;
   }
@@ -365,7 +373,8 @@ uint8_t *get_server_list(size_t *out_size, const char *server_list_url,
   }
   char *response = (char *)calloc(1, 1);
   if (!response) {
-    log_message_safe(LOG_LEVEL_ERROR, "Out of memory allocating response buffer");
+    log_message_safe(LOG_LEVEL_ERROR,
+                     "Out of memory allocating response buffer");
     curl_easy_cleanup(curl);
     return NULL;
   }
@@ -375,7 +384,8 @@ uint8_t *get_server_list(size_t *out_size, const char *server_list_url,
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
   CURLcode res = curl_easy_perform(curl);
   if (res != CURLE_OK) {
-    log_message_safe(LOG_LEVEL_ERROR, "curl_easy_perform() failed: %s", curl_easy_strerror(res));
+    log_message_safe(LOG_LEVEL_ERROR, "curl_easy_perform() failed: %s",
+                     curl_easy_strerror(res));
     curl_easy_cleanup(curl);
     free(response);
     return NULL;
@@ -384,7 +394,8 @@ uint8_t *get_server_list(size_t *out_size, const char *server_list_url,
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
   curl_easy_cleanup(curl);
   if (http_code < 200L || http_code >= 300L) {
-    log_message_safe(LOG_LEVEL_ERROR, "Unsuccessful HTTP response: %ld", http_code);
+    log_message_safe(LOG_LEVEL_ERROR, "Unsuccessful HTTP response: %ld",
+                     http_code);
     free(response);
     return NULL;
   }
@@ -417,7 +428,8 @@ uint8_t *get_server_list(size_t *out_size, const char *server_list_url,
     ServerList__ServerInfo *info =
         (ServerList__ServerInfo *)malloc(sizeof(*info));
     if (!info) {
-      log_message_safe(LOG_LEVEL_CRITICAL, "Out of memory allocating ServerList__ServerInfo");
+      log_message_safe(LOG_LEVEL_CRITICAL,
+                       "Out of memory allocating ServerList__ServerInfo");
       srv = mxmlFindElement(mxmlGetNextSibling(srv), root, "server", NULL, NULL,
                             MXML_DESCEND);
       continue;
@@ -428,7 +440,8 @@ uint8_t *get_server_list(size_t *out_size, const char *server_list_url,
       ServerList__ServerInfo **tmp = (ServerList__ServerInfo **)realloc(
           server_list.servers, allocated * sizeof(*tmp));
       if (!tmp) {
-        log_message_safe(LOG_LEVEL_CRITICAL, "Out of memory resizing server array");
+        log_message_safe(LOG_LEVEL_CRITICAL,
+                         "Out of memory resizing server array");
         free(info);
         srv = mxmlFindElement(mxmlGetNextSibling(srv), root, "server", NULL,
                               NULL, MXML_DESCEND);
@@ -451,10 +464,13 @@ uint8_t *get_server_list(size_t *out_size, const char *server_list_url,
       server_char_count = strdup("");
     char suffix[256] = {0};
     size_t required;
-    bool success = str_copy_formatted(suffix, &required, sizeof(suffix), "(%s)", server_char_count);
+    bool success = str_copy_formatted(suffix, &required, sizeof(suffix), "(%s)",
+                                      server_char_count);
     if (!success) {
-      log_message_safe(LOG_LEVEL_CRITICAL, "Failed to allocate %zu bytes for suffix buffer of %zu bytes",
-                       required, sizeof(suffix));
+      log_message_safe(
+          LOG_LEVEL_CRITICAL,
+          "Failed to allocate %zu bytes for suffix buffer of %zu bytes",
+          required, sizeof(suffix));
       free(info);
       free(server_list.servers);
       mxmlDelete(doc);
@@ -514,8 +530,8 @@ uint8_t *get_server_list(size_t *out_size, const char *server_list_url,
         assign_utf16_field(&info->host, host_str);
         free(host_str);
       } else
-        log_message_safe(LOG_LEVEL_WARNING, "No IP or <host> for server item (id=%u).",
-                        info->id);
+        log_message_safe(LOG_LEVEL_WARNING,
+                         "No IP or <host> for server item (id=%u).", info->id);
     }
     free(server_char_count);
     server_list.servers[server_list.n_servers++] = info;
@@ -525,7 +541,8 @@ uint8_t *get_server_list(size_t *out_size, const char *server_list_url,
   size_t packed_size = server_list__get_packed_size(&server_list);
   uint8_t *buffer = (uint8_t *)malloc(packed_size);
   if (!buffer) {
-    log_message_safe(LOG_LEVEL_CRITICAL, "Out of memory allocating Protobuf buffer");
+    log_message_safe(LOG_LEVEL_CRITICAL,
+                     "Out of memory allocating Protobuf buffer");
     for (size_t i = 0; i < server_list.n_servers; i++) {
       ServerList__ServerInfo *info = server_list.servers[i];
       if (!info)

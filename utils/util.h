@@ -155,14 +155,15 @@ bool log_message(log_level_t level, char const *fmt, ...);
 #include <assert.h>
 
 #ifdef NDEBUG
-// Release build
-#define log_message_safe(level, fmt, ...)                                      \
-  (void)log_message((level), (fmt), __VA_ARGS__)
+  // Release build
+#define log_message_safe(level, fmt, ...) \
+(void)log_message((level), (fmt), ##__VA_ARGS__)
 #else
-// Debug build
-#define log_message_safe(level, fmt, ...)                                      \
-  assert(log_message((level), (fmt), __VA_ARGS__))
+  // Debug build
+#define log_message_safe(level, fmt, ...) \
+assert(log_message((level), (fmt), ##__VA_ARGS__))
 #endif
+
 
 /**
  * @brief If GLib is available and this is not a Windows build, we provide

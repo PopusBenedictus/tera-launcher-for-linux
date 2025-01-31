@@ -305,7 +305,7 @@ static gboolean extract_cabinet(const char *cabinet_path, const char *dest_path,
   const bool success = str_copy_formatted(command, &required, FIXED_STRING_FIELD_SZ,
     "./unelzma \"%s\" \"%s\"", cabinet_path, dest_path);
   if (!success) {
-    g_error("Failed to allocated %zu bytes for command path string in buffer of size %zu bytes.",
+    g_error("Failed to allocate %zu bytes for command path string in buffer of size %zu bytes.",
       required, FIXED_STRING_FIELD_SZ);
   }
   if (system(command) != 0)

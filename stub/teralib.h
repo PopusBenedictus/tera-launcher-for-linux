@@ -14,7 +14,6 @@ extern "C" {
 
 #include <stdbool.h>
 #include <util.h>
-
 /**
  * @brief Initializes the library, creating necessary synchronization
  * primitives.

@@ -249,6 +249,7 @@ bool teralib_init(void) {
   g_gameStatusEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
   g_windowCreatedEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
   info("teralib initialized successfully");
+  return true;
 }
 
 /**

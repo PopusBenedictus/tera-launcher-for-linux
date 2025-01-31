@@ -758,7 +758,7 @@ static void show_fatal_error_dialog_and_exit(GtkApplication *app,
    * Here, we demonstrate a traditional modal error message.
    */
   GtkWidget *dialog = gtk_message_dialog_new(
-      NULL, /* parent window if you have one, or NULL */
+      nullptr, /* parent window if you have one, or NULL */
       GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "%s", message);
 
   /* Connect a callback so that when the dialog closes, the app quits. */

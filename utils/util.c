@@ -103,9 +103,9 @@ bool str_copy_formatted(char *buffer, size_t *size_out, size_t size_in,
   return true;
 }
 
-#ifdef _WIN32
 bool wstr_copy_from_utf8(wchar_t *buffer, size_t *size_out, size_t size_in,
                          char const *source) {
+#ifdef _WIN32
   if (buffer == nullptr || size_out == nullptr || source == nullptr) {
     if (size_out != nullptr) {
       *size_out = 0;
@@ -156,9 +156,11 @@ bool wstr_copy_from_utf8(wchar_t *buffer, size_t *size_out, size_t size_in,
   }
 
   return true;
-}
+#else
+  // No-op for "Non-Win32" parts of stub launcher to build properly.
+  return true;
 #endif
-
+}
 /**
  * @brief Maps a log_level_t to a string label.
  */

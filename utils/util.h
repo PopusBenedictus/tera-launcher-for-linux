@@ -77,7 +77,6 @@ typedef enum {
 bool str_copy_formatted(char *buffer, size_t *size_out, size_t size_in,
                         const char *format, ...);
 
-#ifdef _WIN32
 /**
  * @brief Converts a UTF-8 string into a wide-character (UTF-16) string but:
  *        - Returns `true` only if it fully fits (including the wide null
@@ -110,7 +109,6 @@ bool str_copy_formatted(char *buffer, size_t *size_out, size_t size_in,
  */
 bool wstr_copy_from_utf8(wchar_t *buffer, size_t *size_out, size_t size_in,
                          char const *source);
-#endif
 
 /**
  * @brief Initialize the logging system.

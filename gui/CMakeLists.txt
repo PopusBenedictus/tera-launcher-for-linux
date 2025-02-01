@@ -21,6 +21,8 @@ pkg_check_modules(JANSSON REQUIRED jansson)
 pkg_check_modules(PROTOBUF_C REQUIRED libprotobuf-c)
 pkg_check_modules(GTK4 REQUIRED gtk4)
 
+add_compile_definitions(HAVE_GLIB=1)
+
 include_directories(
         ${CURL_INCLUDE_DIRS}
         ${JANSSON_INCLUDE_DIRS}
@@ -81,6 +83,7 @@ target_link_libraries(tera_launcher_for_linux PRIVATE
         ${CURL_LIBRARIES}
         ${OPENSSL_LIBRARIES}
         SQLite::SQLite3
+        terautils
 )
 target_compile_options(tera_launcher_for_linux PRIVATE ${GTK4_CFLAGS_OTHER})
 

@@ -16,6 +16,16 @@
 #include <unistd.h>
 
 /**
+ * @brief The alert types available for the generic alert dialog used by this
+ * launcher.
+ */
+typedef enum {
+  ALERT_MSG_INFO,
+  ALERT_MSG_WARNING,
+  ALERT_MSG_ERROR
+} AlertMessageType;
+
+/**
  * @brief Used to capture auth info when a user logs into the TERA server. TODO:
  * implement bounds checks here because we could easily exceed these limits and
  * cause a crash.
@@ -161,6 +171,58 @@ static GBytes *style_data_gbytes = nullptr;
  * @brief Data extracted from the embedded stylesheet resource for the GUI.
  */
 const static gchar *style_data = nullptr;
+
+/**
+ * @brief Performs cleanup of a dialog when it's closed.
+ * @param dialog The dialog to be destroyed.
+ */
+static void alert_dialog_response(GtkAlertDialog *dialog, int response_id,
+                                  gpointer user_data) {
+  (void)response_id; // Unused
+  (void)user_data;   // Unused
+  gtk_window_destroy(GTK_WINDOW(dialog));
+}
+
+/**
+ * Spawns a dialog to present an alert to the user, typically errors or
+ * warnings.
+ * @param parent The window requesting this dialog.
+ * @param title Title of the dialog window.
+ * @param message The message to present in the dialog.
+ * @param icon_type The icon to use with the dialog.
+ */
+void show_alert_dialog(GtkWindow *parent, const char *title,
+                       const char *message, AlertMessageType icon_type) {
+  // Create alert dialog with message
+  GtkAlertDialog *dialog;
+
+  switch (icon_type) {
+  case ALERT_MSG_INFO:
+    dialog = gtk_alert_dialog_new("\u2139 %s", message);
+    break;
+  case ALERT_MSG_WARNING:
+    dialog = gtk_alert_dialog_new("\u26a0 %s", message);
+    break;
+  case ALERT_MSG_ERROR:
+    dialog = gtk_alert_dialog_new("\u26d4 %s", message);
+    break;
+  default:
+    dialog = gtk_alert_dialog_new("%s", message);
+  }
+
+  // Configure dialog properties
+  gtk_window_set_title(GTK_WINDOW(dialog), title);
+  gtk_window_set_modal(GTK_WINDOW(dialog), parent != NULL);
+
+  // Add and configure OK button
+  gtk_alert_dialog_set_buttons(dialog, (const char *[]){"OK", nullptr});
+
+  // Connect response handler for cleanup
+  g_signal_connect(dialog, "response", G_CALLBACK(alert_dialog_response), NULL);
+
+  // Show the dialog
+  gtk_alert_dialog_show(dialog, parent);
+}
 
 /**
  * @brief Increment reference count on an instance of update thread data.
@@ -735,53 +797,6 @@ static void setup_transparent_window(GtkWidget *window) {
 }
 
 /**
- * @brief Callback for the dialog's response signal. Destroys the dialog
- *        and quits the application after the user dismisses the error.
- *
- * @param dialog      The GtkDialog pointer.
- * @param response_id The response chosen by the user (close, delete-event,
- * etc.).
- * @param user_data   Pointer to the GtkApplication to be quit.
- */
-static void on_fatal_error_dialog_response(GtkDialog *dialog, gint response_id,
-                                           gpointer user_data) {
-  /* Destroy the dialog */
-  gtk_window_destroy(GTK_WINDOW(dialog));
-
-  /* Quit the application (user_data is our GtkApplication) */
-  if (user_data) {
-    g_application_quit(G_APPLICATION(user_data));
-  }
-}
-
-/**
- * @brief Show a fatal error dialog (for GTK4) with the given message, then quit
- * the app.
- *
- * Once the user dismisses the dialog, the application immediately exits.
- *
- * @param app     The GtkApplication pointer to quit.
- * @param message The error message to display in the dialog.
- */
-static void show_fatal_error_dialog_and_exit(GtkApplication *app,
-                                             const char *message) {
-  /*
-   * In GTK4, you can still create a GtkMessageDialog, but you may need
-   * transitional APIs. Alternatively, consider GtkAlertDialog for pure GTK4.
-   * Here, we demonstrate a traditional modal error message.
-   */
-  GtkWidget *dialog = gtk_message_dialog_new(
-      nullptr, /* parent window if you have one, or NULL */
-      GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "%s", message);
-
-  /* Connect a callback so that when the dialog closes, the app quits. */
-  g_signal_connect(dialog, "response",
-                   G_CALLBACK(on_fatal_error_dialog_response), app);
-
-  gtk_window_present(GTK_WINDOW(dialog));
-}
-
-/**
  * @brief Load and parse JSON configuration from an embedded resource.
  *
  * Looks up the specified resource, reads it as JSON, and returns the jansson
@@ -799,9 +814,20 @@ static json_t *load_launcher_config_json(GtkApplication *app,
       g_resources_lookup_data(resource_path, 0, &error);
 
   if (!launcher_config_gbytes) {
-    show_fatal_error_dialog_and_exit(
-        app, g_strdup_printf("Failed to load config file: %s",
-                             error ? error->message : "Unknown error"));
+    size_t required;
+    char error_message[FIXED_STRING_FIELD_SZ] = {0};
+    const bool success =
+        str_copy_formatted(error_message, &required, FIXED_STRING_FIELD_SZ,
+                           "Unable to load launcher config: %s",
+                           error ? error->message : "Unknown error");
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for error message into buffer of "
+              "%zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
+    }
+    show_alert_dialog(gtk_application_get_active_window(app),
+                      "Configuration Error", error_message, ALERT_MSG_ERROR);
+
     if (error) {
       g_error_free(error);
     }
@@ -811,9 +837,19 @@ static json_t *load_launcher_config_json(GtkApplication *app,
   gsize size = 0;
   const gchar *data = g_bytes_get_data(launcher_config_gbytes, &size);
   if (!data) {
-    show_fatal_error_dialog_and_exit(
-        app, g_strdup_printf("Failed to load embedded configuration data: %s",
-                             error ? error->message : "Unknown error"));
+    size_t required;
+    char error_message[FIXED_STRING_FIELD_SZ] = {0};
+    const bool success =
+        str_copy_formatted(error_message, &required, FIXED_STRING_FIELD_SZ,
+                           "Unable to load embedded config data: %s",
+                           error ? error->message : "Unknown error");
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for error message into buffer of "
+              "%zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
+    }
+    show_alert_dialog(gtk_application_get_active_window(app),
+                      "Embedded Data Error", error_message, ALERT_MSG_ERROR);
     if (error) {
       g_error_free(error);
     }
@@ -823,8 +859,9 @@ static json_t *load_launcher_config_json(GtkApplication *app,
   json_error_t json_error;
   json_t *config_json = json_loads(data, JSON_STRING, &json_error);
   if (!config_json) {
-    show_fatal_error_dialog_and_exit(
-        app, "Could not parse launcher configuration JSON.");
+    show_alert_dialog(gtk_application_get_active_window(app), "Parser Error",
+                      "Could not parse launcher configuration JSON.",
+                      ALERT_MSG_ERROR);
     if (error) {
       g_error_free(error);
     }
@@ -855,13 +892,33 @@ static void parse_and_copy_string(GtkApplication *app,
                                   const char *key, char *destination) {
   json_t *field = json_object_get(launcher_config_json, key);
   if (!field) {
-    show_fatal_error_dialog_and_exit(
-        app, g_strdup_printf("Could not parse key: %s", key));
+    size_t required;
+    char error_message[FIXED_STRING_FIELD_SZ] = {0};
+    const bool success =
+        str_copy_formatted(error_message, &required, FIXED_STRING_FIELD_SZ,
+                           "Could not parse key: %s", key);
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for error message into buffer of "
+              "%zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
+    }
+    show_alert_dialog(gtk_application_get_active_window(app), "Data Error",
+                      error_message, ALERT_MSG_ERROR);
   }
 
   if (!json_is_string(field)) {
-    show_fatal_error_dialog_and_exit(
-        app, g_strdup_printf("Key '%s' is not a valid string.", key));
+    size_t required;
+    char error_message[FIXED_STRING_FIELD_SZ] = {0};
+    const bool success =
+        str_copy_formatted(error_message, &required, FIXED_STRING_FIELD_SZ,
+                           "Key '%s' is not a valid string.", key);
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for error message into buffer of "
+              "%zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
+    }
+    show_alert_dialog(gtk_application_get_active_window(app),
+                      "Data Format Error", error_message, ALERT_MSG_ERROR);
   }
 
   const char *str_value = json_string_value(field);
@@ -899,9 +956,13 @@ static gboolean launcher_init_config(GtkApplication *app) {
   const char *p = wineprefix_global;
   while (*p) {
     if (*p == '/' || *p == '\\') {
-      show_fatal_error_dialog_and_exit(
-          app, "Wine prefix contains path separators, which is not valid.");
-      /* The application will quit upon dialog dismissal. */
+      const char *error_msg =
+          "Wine prefix contains path separators, which is not valid.";
+      show_alert_dialog(
+          gtk_application_get_active_window(app), "Configuration Error",
+          "Wine prefix contains path separators, which is not valid.",
+          ALERT_MSG_ERROR);
+      g_error(error_msg);
     }
     p++;
   }
@@ -1450,13 +1511,10 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
     g_message("Login success => switch to patch");
     switch_to_patch(ld);
   } else {
-    // Display error dialog
-    GtkWidget *dialog = gtk_message_dialog_new(
-        GTK_WINDOW(ld->window),
-        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, GTK_MESSAGE_ERROR,
-        GTK_BUTTONS_CLOSE, "Login failed. Please check your credentials.");
-    gtk_window_present(GTK_WINDOW(dialog));
-    gtk_window_destroy(GTK_WINDOW(dialog));
+    show_alert_dialog(
+        GTK_WINDOW(ld->window), "Login Failed",
+        "Login was not successful. Check your credentials and try again.",
+        ALERT_MSG_WARNING);
   }
 }
 
@@ -1485,53 +1543,55 @@ static void on_logout_clicked(GtkButton *btn, gpointer user_data) {
 }
 
 /**
- * @brief Callback function for handling repair dialog confirmation.
- *
- * @param dialog The repair confirmation dialog the user was prompted with.
- * @param response_id The type of response the user provided.
- * @param user_data Pointer to LauncherData.
+ * @brief Handles alert dialog responses
  */
-static void on_repair_dialog_popped(GtkDialog *dialog, gint response_id,
-                                    gpointer user_data) {
-  LauncherData *ld_inner = user_data;
-  if (response_id == GTK_RESPONSE_YES) {
-    g_message("Repair confirmed. Initiating repair process.");
+static void on_repair_dialog_response(GtkAlertDialog *dialog,
+                                      GAsyncResult *result,
+                                      gpointer user_data) {
+  LauncherData *ld = user_data;
+  GError *error = nullptr;
 
-    // Start the update process
-    start_update_process(ld_inner, TRUE);
-  } else {
-    g_message("Repair canceled by user.");
+  // Get response with proper error handling
+  gint response =
+      gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, &error);
+
+  if (error) {
+    g_warning("Dialog error: %s", error->message);
+    g_error_free(error);
+    return;
   }
 
-  // Destroy the dialog
-  gtk_window_destroy(GTK_WINDOW(dialog));
+  if (response == 1) { // Repair button index
+    g_message("Initiating file repair");
+    start_update_process(ld, TRUE);
+  } else {
+    g_message("Repair canceled");
+  }
 }
 
 /**
- * @brief Callback function for handling the repair button clicks.
- *
- * @param btn The repair button widget.
- * @param user_data Pointer to LauncherData.
+ * @brief Callback function for handling repair button clicks.
  */
 static void on_repair_clicked(GtkButton *btn, gpointer user_data) {
+  (void)btn; // Unused.
   LauncherData *ld = user_data;
 
-  // Create a confirmation dialog
-  GtkWidget *dialog = gtk_dialog_new_with_buttons(
-      "Confirm Repair", GTK_WINDOW(ld->window),
-      GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, "_Yes",
-      GTK_RESPONSE_YES, "_No", GTK_RESPONSE_NO, nullptr);
+  // Create and configure the alert dialog
+  GtkAlertDialog *dialog =
+      gtk_alert_dialog_new("Are you sure you want to initiate repair?");
+  gtk_alert_dialog_set_detail(
+      dialog,
+      "This will verify and repair game files. It may take a long time.");
+  gtk_alert_dialog_set_buttons(dialog,
+                               (const char *[]){"_Cancel", "_Repair", nullptr});
 
-  GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
-  GtkWidget *label = gtk_label_new("Are you sure you want to initiate repair?");
-  gtk_box_append(GTK_BOX(content_area), label);
-  gtk_widget_set_visible(label, TRUE);
+  // Present the dialog and handle response
+  gtk_alert_dialog_choose(dialog, GTK_WINDOW(ld->window),
+                          nullptr, // No cancellable
+                          (GAsyncReadyCallback)on_repair_dialog_response, ld);
 
-  // Connect to the 'response' signal to handle user input
-  g_signal_connect(dialog, "response", G_CALLBACK(on_repair_dialog_popped), ld);
-
-  // Present the dialog
-  gtk_window_present(GTK_WINDOW(dialog));
+  // Release our reference - dialog manages its own lifetime
+  g_object_unref(dialog);
 }
 
 /**

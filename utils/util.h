@@ -12,6 +12,7 @@
 extern "C" {
 #endif
 
+#include <assert.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -115,9 +116,6 @@ void log_shutdown(void);
  *              false if at least one path fails.
  */
 bool log_message(log_level_t level, char const *fmt, ...);
-
-#include "util.h" // for log_message()
-#include <assert.h>
 
 #ifdef NDEBUG
 // Release build

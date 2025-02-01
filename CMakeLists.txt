@@ -9,6 +9,11 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
 
 # --------------------------------------------------------------------------
+# Build the utils subproject (with preferred native toolchain)
+# --------------------------------------------------------------------------
+add_subdirectory(utils)
+
+# --------------------------------------------------------------------------
 # Build the GUI subproject (with preferred native toolchain)
 # --------------------------------------------------------------------------
 add_subdirectory(gui)
@@ -23,9 +28,12 @@ include(ExternalProject)
 ExternalProject_Add(stub_launcher_ex
         SOURCE_DIR         ${CMAKE_SOURCE_DIR}/stub
         BINARY_DIR         ${CMAKE_BINARY_DIR}/stub-build
+        DEPENDS            terautils
         CMAKE_ARGS         -DCMAKE_INSTALL_PREFIX=${COMMON_RUNTIME_OUTPUT_DIRECTORY}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DCMAKE_C_COMPILER=winegcc
+        -DTERAUTILS_LIB=$<TARGET_FILE:terautils>
+        -DTERAUTILS_INCLUDE_DIR=${CMAKE_SOURCE_DIR}/utils
         INSTALL_COMMAND    ${CMAKE_COMMAND} --build . --target install
 )
 

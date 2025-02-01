@@ -35,7 +35,10 @@ int main(const int argc, char *argv[]) {
   const char *server_list_in = argv[6];
 
   // Initialize teralib
-  teralib_init();
+  if (!teralib_init()) {
+    fputs("[CRITICAL] Failed to initialize teralib.\n", stderr);
+    return -1;
+  }
 
   // Run the game synchronously
   const int exit_code = run_game(account_name, characters_count, ticket,

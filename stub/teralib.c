@@ -382,7 +382,10 @@ static void handle_account_name_request(WPARAM recipient, HWND sender) {
      return an incorrect length in certain environments with winelib, strlen()
      against the input is safer here. */
   size_t cbSize = strlen(account_name) * sizeof(wchar_t);
-  log_message_safe(LOG_LEVEL_DEBUG, "Should be sending %zu bytes of account name from %zu bytes input.", required, strlen(account_name));
+  log_message_safe(
+      LOG_LEVEL_DEBUG,
+      "Should be sending %zu bytes of account name from %zu bytes input.",
+      required, strlen(account_name));
   log_message_safe(LOG_LEVEL_DEBUG, "Current cbSize is %zu", cbSize);
 
   /* Send the wide chars as raw bytes WITHOUT null terminator and with

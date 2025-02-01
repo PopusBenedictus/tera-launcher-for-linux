@@ -13,12 +13,12 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
-
+#include <util.h>
 /**
  * @brief Initializes the library, creating necessary synchronization
  * primitives.
  */
-void teralib_init(void);
+bool teralib_init(void);
 
 /**
  * @brief Shuts down the library, destroying synchronization primitives.

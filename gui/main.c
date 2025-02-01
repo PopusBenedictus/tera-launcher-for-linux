@@ -16,6 +16,16 @@
 #include <unistd.h>
 
 /**
+ * @brief The alert types available for the generic alert dialog used by this
+ * launcher.
+ */
+typedef enum {
+  ALERT_MSG_INFO,
+  ALERT_MSG_WARNING,
+  ALERT_MSG_ERROR
+} AlertMessageType;
+
+/**
  * @brief Used to capture auth info when a user logs into the TERA server. TODO:
  * implement bounds checks here because we could easily exceed these limits and
  * cause a crash.
@@ -161,6 +171,61 @@ static GBytes *style_data_gbytes = nullptr;
  * @brief Data extracted from the embedded stylesheet resource for the GUI.
  */
 const static gchar *style_data = nullptr;
+
+/**
+ * @brief Performs cleanup of a dialog when it's closed.
+ * @param dialog The dialog to be destroyed.
+ */
+static void alert_dialog_response(GtkAlertDialog *dialog, int response_id,
+                                  gpointer user_data) {
+  (void)response_id; // Unused
+  (void)user_data;   // Unused
+  gtk_window_destroy(GTK_WINDOW(dialog));
+}
+
+/**
+ * Spawns a dialog to present an alert to the user, typically errors or
+ * warnings.
+ * @param parent The window requesting this dialog.
+ * @param title Title of the dialog window.
+ * @param message The message to present in the dialog.
+ * @param icon_type The icon to use with the dialog.
+ */
+void show_alert_dialog(GtkWindow *parent, const char *title,
+                       const char *message, AlertMessageType icon_type) {
+  // Create alert dialog with message
+  GtkAlertDialog *dialog = gtk_alert_dialog_new("%s", message);
+
+  // Configure dialog properties
+  gtk_window_set_title(GTK_WINDOW(dialog), title);
+  gtk_window_set_modal(GTK_WINDOW(dialog), parent != NULL);
+
+  // Set appropriate icon
+  const char *icon_name;
+  switch (icon_type) {
+  case ALERT_MSG_INFO:
+    icon_name = "dialog-information-symbolic";
+    break;
+  case ALERT_MSG_WARNING:
+    icon_name = "dialog-warning-symbolic";
+    break;
+  case ALERT_MSG_ERROR:
+    icon_name = "dialog-error-symbolic";
+    break;
+  default:
+    icon_name = "dialog-information-symbolic";
+  }
+  g_object_set(dialog, "icon-name", icon_name, NULL);
+
+  // Add and configure OK button
+  gtk_alert_dialog_set_buttons(dialog, (const char *[]){"OK", NULL});
+
+  // Connect response handler for cleanup
+  g_signal_connect(dialog, "response", G_CALLBACK(alert_dialog_response), NULL);
+
+  // Show the dialog
+  gtk_alert_dialog_show(dialog, parent);
+}
 
 /**
  * @brief Increment reference count on an instance of update thread data.

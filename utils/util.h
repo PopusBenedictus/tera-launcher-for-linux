@@ -78,39 +78,6 @@ bool str_copy_formatted(char *buffer, size_t *size_out, size_t size_in,
                         const char *format, ...);
 
 /**
- * @brief Converts a UTF-8 string into a wide-character (UTF-16) string but:
- *        - Returns `true` only if it fully fits (including the wide null
- * terminator)
- *        - Returns `false` otherwise
- *        - On any failure or insufficient space, does NOT modify @p buffer
- *        - Always writes into @p size_out the number of bytes required to
- *          store the resulting wide string (excluding the null terminator).
- *
- * Uses a fixed-size stack buffer of size `WTMP_BUFFER_SIZE` (in wide
- * characters) for the actual conversion pass to avoid partial writes to the
- * user buffer.
- *
- * @param[in,out] buffer   Wide-character destination buffer (only written on
- * success).
- * @param[out]    size_out Number of bytes required (excluding the wide null
- * terminator).
- * @param[in]     size_in  Capacity of @p buffer in **wide characters**
- * (including space for the null terminator).
- * @param[in]     source   UTF-8 source string (null-terminated).
- *
- * @return `true` if the converted wide string fits fully (including `L'\0'`),
- *         `false` otherwise.
- *
- * **Notes**:
- * - `size_in` is the number of `wchar_t` elements available in @p buffer.
- * - `*size_out` is the number of **bytes** needed for the resulting wide string
- *   (excluding the wide null terminator).
- * - This function uses `MultiByteToWideChar` with `CP_UTF8`.
- */
-bool wstr_copy_from_utf8(wchar_t *buffer, size_t *size_out, size_t size_in,
-                         char const *source);
-
-/**
  * @brief Initialize the logging system.
  *
  * Opens (or creates) a file named "<prefix>-launcher.log" in the current

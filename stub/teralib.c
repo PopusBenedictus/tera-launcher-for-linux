@@ -13,6 +13,12 @@
 #include "teralib.h"
 
 /**
+ * @brief Temporary buffer size for string operations on utf16le strings (e.g.
+ * WCHAR, wchar_t)
+ */
+#define WTMP_BUFFER_SZ (FIXED_STRING_FIELD_SZ * 16)
+
+/**
  * @brief Callback used by EnumWindows to list top-level windows.
  *
  * @param hwnd   Current window handle.
@@ -221,35 +227,59 @@ bool is_game_running(void) { return (GAME_RUNNING != 0); }
 #endif
 #define WM_GAME_EXITED (WM_USER + 1)
 
-/**
- * @brief Converts a UTF-8 C string to a wide-character (UTF-16) string.
- *
- * @param s Null-terminated UTF-8 C string.
- * @return Dynamically allocated wide-character string, or NULL on failure.
- */
-static WCHAR *to_wstring(const char *s) {
-  if (!s) {
-    return NULL;
+bool wstr_copy_from_utf8(wchar_t *buffer, size_t *size_out, size_t size_in,
+                         char const *source) {
+  if (buffer == nullptr || size_out == nullptr || source == nullptr) {
+    if (size_out != nullptr) {
+      *size_out = 0;
+    }
+    return false;
   }
 
-  int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
-  if (len <= 0) {
-    return NULL;
+  // First pass: how many wide chars are needed (including the null terminator)?
+  printf("Input string, %s length: %i", source, strlen(source));
+  int needed_wchars = MultiByteToWideChar(CP_UTF8, 0, source,
+                                          -1, // process until null terminator
+                                          nullptr, 0);
+
+  if (needed_wchars <= 0) {
+    *size_out = 0;
+    return false;
   }
 
-  WCHAR *wbuf = malloc((size_t)len * sizeof(WCHAR));
-  if (!wbuf) {
-    log_message_safe(LOG_LEVEL_ERROR, "Memory allocation failed in to_wstring");
-    return NULL;
+  // needed_wchars includes the null terminator in wide chars.
+  // The number of bytes (excluding the null terminator) is:
+  //   (needed_wchars - 1) * sizeof(wchar_t).
+  *size_out = (size_t)(needed_wchars - 1) * sizeof(wchar_t);
+
+  // Check if user buffer has enough space (in wide chars).
+  if ((size_t)needed_wchars > size_in) {
+    return false;
   }
-  memset((void *)wbuf, 0, (size_t)len * sizeof(WCHAR));
 
-  log_message_safe(LOG_LEVEL_TRACE,
-                   "Input string: %s, input length: %lu, out_sz: %d", s,
-                   (unsigned long)strlen(s), len);
+  // Check if it fits in our fixed on-stack buffer:
+  if ((size_t)needed_wchars > WTMP_BUFFER_SZ) {
+    // The converted string won't fit into our on-stack temp array.
+    return false;
+  }
 
-  MultiByteToWideChar(CP_UTF8, 0, s, -1, wbuf, len);
-  return wbuf;
+  // Second pass: convert into our on-stack temporary buffer
+  wchar_t temp_buf[WTMP_BUFFER_SZ];
+
+  int converted =
+      MultiByteToWideChar(CP_UTF8, 0, source, -1, temp_buf, needed_wchars);
+
+  if (converted <= 0) {
+    // Conversion failed
+    return false;
+  }
+
+  // Copy from temp_buf to user buffer (including null terminator).
+  for (int i = 0; i < needed_wchars; i++) {
+    buffer[i] = temp_buf[i];
+  }
+
+  return true;
 }
 
 /**
@@ -335,7 +365,7 @@ static void handle_account_name_request(WPARAM recipient, HWND sender) {
   log_message_safe(LOG_LEVEL_DEBUG, "Account Name Request - Sending: %s",
                    account_name);
 
-  wchar_t wbuf[FIXED_STRING_FIELD_SZ * sizeof(wchar_t)];
+  wchar_t wbuf[FIXED_STRING_FIELD_SZ];
   size_t required;
   const bool success =
       wstr_copy_from_utf8(wbuf, &required, FIXED_STRING_FIELD_SZ, account_name);
@@ -352,6 +382,8 @@ static void handle_account_name_request(WPARAM recipient, HWND sender) {
      return an incorrect length in certain environments with winelib, strlen()
      against the input is safer here. */
   size_t cbSize = strlen(account_name) * sizeof(wchar_t);
+  log_message_safe(LOG_LEVEL_DEBUG, "Should be sending %zu bytes of account name from %zu bytes input.", required, strlen(account_name));
+  log_message_safe(LOG_LEVEL_DEBUG, "Current cbSize is %zu", cbSize);
 
   /* Send the wide chars as raw bytes WITHOUT null terminator and with
    * event_id=2 */

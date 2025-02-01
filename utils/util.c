@@ -10,7 +10,9 @@
 #if !defined(_WIN32) && defined(HAVE_GLIB)
 #include <glib.h>
 #endif
-
+#ifndef _WIN32
+#include <iconv.h>
+#endif
 /* -------------------------------------------------------------------------
  * Global Log State
  * ------------------------------------------------------------------------- */
@@ -32,12 +34,6 @@ static bool g_file_path_failure_reported = false;
  * @brief Temporary buffer size for string operations on ascii/utf8 strings
  */
 #define TMP_BUFFER_SZ (FIXED_STRING_FIELD_SZ * 8)
-
-/**
- * @brief Temporary buffer size for string operations on utf16le strings (e.g.
- * WCHAR, wchar_t)
- */
-#define WTMP_BUFFER_SZ (FIXED_STRING_FIELD_SZ * 16)
 
 bool str_copy_formatted(char *buffer, size_t *size_out, size_t size_in,
                         char const *format, ...) {
@@ -103,64 +99,6 @@ bool str_copy_formatted(char *buffer, size_t *size_out, size_t size_in,
   return true;
 }
 
-bool wstr_copy_from_utf8(wchar_t *buffer, size_t *size_out, size_t size_in,
-                         char const *source) {
-#ifdef _WIN32
-  if (buffer == nullptr || size_out == nullptr || source == nullptr) {
-    if (size_out != nullptr) {
-      *size_out = 0;
-    }
-    return false;
-  }
-
-  // First pass: how many wide chars are needed (including the null terminator)?
-  int needed_wchars = MultiByteToWideChar(CP_UTF8, 0, source,
-                                          -1, // process until null terminator
-                                          nullptr, 0);
-
-  if (needed_wchars <= 0) {
-    *size_out = 0;
-    return false;
-  }
-
-  // needed_wchars includes the null terminator in wide chars.
-  // The number of bytes (excluding the null terminator) is:
-  //   (needed_wchars - 1) * sizeof(wchar_t).
-  *size_out = (size_t)(needed_wchars - 1) * sizeof(wchar_t);
-
-  // Check if user buffer has enough space (in wide chars).
-  if ((size_t)needed_wchars > size_in) {
-    return false;
-  }
-
-  // Check if it fits in our fixed on-stack buffer:
-  if ((size_t)needed_wchars > WTMP_BUFFER_SZ) {
-    // The converted string won't fit into our on-stack temp array.
-    return false;
-  }
-
-  // Second pass: convert into our on-stack temporary buffer
-  wchar_t temp_buf[WTMP_BUFFER_SZ];
-
-  int converted =
-      MultiByteToWideChar(CP_UTF8, 0, source, -1, temp_buf, needed_wchars);
-
-  if (converted <= 0) {
-    // Conversion failed
-    return false;
-  }
-
-  // Copy from temp_buf to user buffer (including null terminator).
-  for (int i = 0; i < needed_wchars; i++) {
-    buffer[i] = temp_buf[i];
-  }
-
-  return true;
-#else
-  // No-op for "Non-Win32" parts of stub launcher to build properly.
-  return true;
-#endif
-}
 /**
  * @brief Maps a log_level_t to a string label.
  */

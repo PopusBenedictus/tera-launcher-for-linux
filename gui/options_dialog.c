@@ -357,6 +357,7 @@ static void handle_ok_response(GtkDialog *dialog) {
 static void on_ok_clicked(GtkButton *button, gpointer user_data) {
   const auto dialog = GTK_DIALOG(user_data);
   handle_ok_response(dialog);
+  config_write_to_ini();
   gtk_window_close(GTK_WINDOW(dialog));
 }
 

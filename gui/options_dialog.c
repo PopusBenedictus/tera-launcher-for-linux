@@ -331,6 +331,7 @@ static void handle_ok_response(GtkDialog *dialog) {
 
   use_gamemoderun = new_gamemode;
   use_gamescope = new_gamescope;
+  use_tera_toolbox = new_toolbox;
 
   if (new_toolbox) {
     success = str_copy_formatted(tera_toolbox_path_global, &required,

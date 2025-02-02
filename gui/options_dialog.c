@@ -105,7 +105,7 @@ static void on_wineprefix_selected(GObject *source, GAsyncResult *result,
   GFile *file =
       gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, &error);
   if (file) {
-    g_autofree char *path = g_file_get_path(file);
+    g_autofree const char *path = g_file_get_path(file);
     if (path) {
       const char *name = g_path_get_basename(path);
       gtk_entry_buffer_set_text(gtk_entry_get_buffer(entry), name, -1);
@@ -126,7 +126,7 @@ static void on_wineprefix_selected(GObject *source, GAsyncResult *result,
  */
 static void on_wineprefix_browse_clicked(GtkButton *button,
                                          gpointer user_data) {
-  GtkWindow *parent = GTK_WINDOW(user_data);
+  const auto parent = GTK_WINDOW(user_data);
   GtkEntry *entry =
       GTK_ENTRY(g_object_get_data(G_OBJECT(parent), "wineprefix-entry"));
   GtkFileDialog *dialog = gtk_file_dialog_new();

@@ -7,6 +7,7 @@
 
 #include "updater.h"
 #include "util.h"
+#include "shared_struct_defs.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>
 #include <glib.h>
@@ -24,64 +25,6 @@ typedef enum {
   ALERT_MSG_WARNING,
   ALERT_MSG_ERROR
 } AlertMessageType;
-
-/**
- * @brief Used to capture auth info when a user logs into the TERA server. TODO:
- * implement bounds checks here because we could easily exceed these limits and
- * cause a crash.
- */
-typedef struct {
-  char user_no[FIXED_STRING_FIELD_SZ];
-  char auth_key[FIXED_STRING_FIELD_SZ];
-  char character_count[FIXED_STRING_FIELD_SZ];
-  char welcome_label_msg[FIXED_STRING_FIELD_SZ];
-} LoginData;
-
-/**
- * @brief Used to help with the manual window dragging callback and storing the
- * state thereof.
- */
-typedef struct {
-  gboolean dragging;
-} DragData;
-
-/**
- * @brief Used to store all the GUI widgets and possibly some state relating to
- * window moves and other things.
- */
-typedef struct {
-  GtkWidget *window;
-  GtkWidget *base_overlay;
-
-  // Login pane
-  GtkWidget *login_overlay;
-  GtkWindowHandle *login_window_handle;
-  GtkWidget *user_entry;
-  GtkWidget *pass_entry;
-  GtkWidget *login_btn;
-  GtkWidget *close_login_btn;
-
-  // Patch/Play pane
-  GtkWidget *patch_overlay;
-  GtkWindowHandle *patch_window_handle;
-  GtkWidget *welcome_label;
-  GtkWidget *welcome_label_hbox;
-  GtkWidget *footer_label;
-  GtkWidget *play_btn;
-  GtkWidget *logout_btn;
-  GtkWidget *repair_btn;
-  GtkWidget *close_patch_btn;
-  GtkWidget *update_repair_progress_bar;
-  GtkWidget *update_repair_download_bar;
-
-  // Data from do_login
-  LoginData login_data;
-
-  // Gesture controllers
-  GtkEventController *login_controller;
-  GtkEventController *patch_controller;
-  DragData drag_data;
-} LauncherData;
 
 /**
  * @brief Structure to hold data for launching the game.
@@ -126,39 +69,54 @@ struct CurlResponse {
 /**
  * @brief Game language string from the embedded sjon resource.
  */
-static char game_lang_global[FIXED_STRING_FIELD_SZ] = {0};
+char game_lang_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Wineprefix folder name from the embedded json resource.
  */
-static char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the patch url root.
  */
-static char patch_url_global[FIXED_STRING_FIELD_SZ] = {0};
+char patch_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the auth url root.
  */
-static char auth_url_global[FIXED_STRING_FIELD_SZ] = {0};
+char auth_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the server list url.
  */
-static char server_list_url_global[FIXED_STRING_FIELD_SZ] = {0};
+char server_list_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the service name that is displayed in the patch window
  * footer.
  */
-static char service_name_global[FIXED_STRING_FIELD_SZ] = {0};
+char service_name_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Used to store the final update thread message, if any, to update
  * progress bar label when the update resources are being thrown out.
  */
 static char update_finish_message[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Used to determine if we should launch the game with gamemode or not.
+ */
+bool use_gamemoderun = false;
+
+/**
+ * @brief Used to determine if we should launch the game with gamescope or not.
+ */
+bool use_gamescope = false;
+
+/**
+ * @ Used to determine if we should launch Tera Toolbox through the CLI or not.R
+ */
+bool use_tera_toolbox = false;
 
 /**
  * @brief Holds a reference to the GUI stylesheet from the embedded resources.

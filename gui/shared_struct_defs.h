@@ -11,9 +11,7 @@
 #include <gtk/gtk.h>
 
 /**
- * @brief Used to capture auth info when a user logs into the TERA server. TODO:
- * implement bounds checks here because we could easily exceed these limits and
- * cause a crash.
+ * @brief Used to capture auth info when a user logs into the TERA server.
  */
 typedef struct {
     char user_no[FIXED_STRING_FIELD_SZ];

@@ -354,7 +354,7 @@ static void handle_ok_response(GtkDialog *dialog) {
  * @param user_data Pointer to the options dialog.
  */
 static void on_ok_clicked(GtkButton *button, gpointer user_data) {
-  GtkDialog *dialog = GTK_DIALOG(user_data);
+  const auto dialog = GTK_DIALOG(user_data);
   handle_ok_response(dialog);
   gtk_window_close(GTK_WINDOW(dialog));
 }

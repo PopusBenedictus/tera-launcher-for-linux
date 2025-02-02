@@ -170,8 +170,8 @@ static int xfer_progress(void *p, curl_off_t dltotal, curl_off_t dlnow,
     size_t required;
     constexpr size_t pbar_sz = sizeof(data->pbar_label);
     const bool success = str_copy_formatted(
-        data->pbar_label, &required, pbar_sz, data->download_now,
-        data->download_total, data->download_speed);
+        data->pbar_label, &required, pbar_sz, "Progress: ( %s / %s ) %s",
+        data->download_now, data->download_total, data->download_speed);
     if (!success) {
       g_error("Failed to allocate %zu bytes for progress bar update into "
               "buffer of %zu bytes.",

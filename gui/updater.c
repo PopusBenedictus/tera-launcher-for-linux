@@ -349,7 +349,7 @@ static gboolean download_version_ini(UpdateData *data) {
                                           "%s/%s", current_dir, "version.ini");
   if (!success) {
     g_error(
-        "Failed to allocate %zu bytes for file path into buffer of %zu bytes.",
+        "Failed to allocate %zu bytes for file path into buffer of %u bytes.",
         required, PATH_MAX);
   }
   GFile *src_file = g_file_new_for_path(version_ini_path);
@@ -953,7 +953,7 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
                                  total_files, file_name);
     if (!success) {
       g_error("Unable to allocate %zu bytes for progress message into buffer "
-              "of %zu bytes.");
+              "of %zu bytes.", required, FIXED_STRING_FIELD_SZ);
     }
     g_free(file_name);
     update_progress(callback, current_progress, progress_msg, user_data);

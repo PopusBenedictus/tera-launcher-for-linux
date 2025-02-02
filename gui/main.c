@@ -67,7 +67,7 @@ struct CurlResponse {
 };
 
 /**
- * @brief Game language string from the embedded sjon resource.
+ * @brief Game language string from the embedded json resource.
  */
 char game_lang_global[FIXED_STRING_FIELD_SZ] = {0};
 
@@ -75,6 +75,18 @@ char game_lang_global[FIXED_STRING_FIELD_SZ] = {0};
  * @brief Wineprefix folder name from the embedded json resource.
  */
 char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Wineprefix folder name from the embedded json resource (default
+ * value).
+ */
+char wineprefix_default_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief If specified by the user, a path to a custom build of wine. Unset by
+ * default.
+ */
+char wine_base_dir_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the patch url root.

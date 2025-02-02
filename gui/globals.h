@@ -16,6 +16,7 @@ extern "C" {
 
 extern char game_lang_global[FIXED_STRING_FIELD_SZ];
 extern char wineprefix_global[FIXED_STRING_FIELD_SZ];
+extern char wineprefix_default_global[FIXED_STRING_FIELD_SZ];
 extern char wine_base_dir_global[FIXED_STRING_FIELD_SZ];
 extern char patch_url_global[FIXED_STRING_FIELD_SZ];
 extern char auth_url_global[FIXED_STRING_FIELD_SZ];

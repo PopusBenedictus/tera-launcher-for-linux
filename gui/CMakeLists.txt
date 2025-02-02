@@ -73,6 +73,7 @@ add_custom_target(gtk_build_resources DEPENDS ${GRESOURCE_C})
 #############################################
 add_executable(tera_launcher_for_linux
         ${CMAKE_CURRENT_SOURCE_DIR}/main.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/options_dialog.c
         ${CMAKE_CURRENT_SOURCE_DIR}/updater.c
         ${GRESOURCE_C}  # the generated file
 )

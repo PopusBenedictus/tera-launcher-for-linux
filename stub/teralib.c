@@ -36,12 +36,12 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
 
     /* Get the window title (name) */
     if (GetWindowTextA(hwnd, windowTitle, sizeof(windowTitle))) {
-      printf("Window Handle: 0x%08p, Class Name: %s, Window Title: %s\n",
+      printf("Window Handle: %p, Class Name: %s, Window Title: %s\n",
              (void *)hwnd, className, windowTitle);
     } else {
       /* If the window has no title */
       printf(
-          "Window Handle: 0x%08p, Class Name: %s, Window Title: [No Title]\n",
+          "Window Handle: %p, Class Name: %s, Window Title: [No Title]\n",
           (void *)hwnd, className);
     }
   }
@@ -237,7 +237,7 @@ bool wstr_copy_from_utf8(wchar_t *buffer, size_t *size_out, size_t size_in,
   }
 
   // First pass: how many wide chars are needed (including the null terminator)?
-  printf("Input string, %s length: %i", source, strlen(source));
+  printf("Input string, %s length: %lu", source, strlen(source));
   int needed_wchars = MultiByteToWideChar(CP_UTF8, 0, source,
                                           -1, // process until null terminator
                                           nullptr, 0);

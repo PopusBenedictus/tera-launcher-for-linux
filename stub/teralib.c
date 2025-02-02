@@ -40,9 +40,8 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
              (void *)hwnd, className, windowTitle);
     } else {
       /* If the window has no title */
-      printf(
-          "Window Handle: %p, Class Name: %s, Window Title: [No Title]\n",
-          (void *)hwnd, className);
+      printf("Window Handle: %p, Class Name: %s, Window Title: [No Title]\n",
+             (void *)hwnd, className);
     }
   }
 

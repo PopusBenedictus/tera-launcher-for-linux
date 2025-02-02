@@ -41,7 +41,7 @@ typedef enum {
 } log_level_t;
 
 #ifndef FIXED_STRING_FIELD_SZ
-#define FIXED_STRING_FIELD_SZ 16384
+#define FIXED_STRING_FIELD_SZ (size_t)16384
 #endif
 
 /**

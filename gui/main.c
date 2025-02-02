@@ -7,7 +7,6 @@
 
 #include "shared_struct_defs.h"
 #include "updater.h"
-#include "util.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>
 #include <glib.h>

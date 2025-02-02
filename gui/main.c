@@ -1831,7 +1831,7 @@ int main(const int argc, char **argv) {
   g_signal_connect(app, "activate", G_CALLBACK(activate), &ld);
 
   // Run the application
-  int status = g_application_run(G_APPLICATION(app), argc, argv);
+  const int status = g_application_run(G_APPLICATION(app), argc, argv);
 
   // Clean up
   g_object_unref(app);

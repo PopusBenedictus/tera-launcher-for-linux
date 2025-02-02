@@ -561,3 +561,134 @@ GtkWidget *create_options_dialog(LauncherData *ld,
 
   return dialog;
 }
+
+/**
+ * @brief Reads configuration values from "tera-launcher-config.ini" into global
+ * variables.
+ *
+ * @note String values that are too long for their destination buffers will be
+ * truncated via str_copy_formatted(), preserving the existing default value.
+ * @note Errors during file loading are ignored (treated as non-existent config
+ * file).
+ */
+void config_read_from_ini(void) {
+  GKeyFile *keyfile = g_key_file_new();
+  GError *error = nullptr;
+
+  // Attempt to load the INI file; silently ignore if not found
+  if (!g_key_file_load_from_file(keyfile, "tera-launcher-config.ini",
+                                 G_KEY_FILE_NONE, &error)) {
+    g_clear_error(&error);
+    g_key_file_free(keyfile);
+    return;
+  }
+
+// Helper macro to read and copy string values if they exist
+#define READ_STRING_KEY(key_name, global_var)                                  \
+  do {                                                                         \
+    char *value =                                                              \
+        g_key_file_get_string(keyfile, "Settings", key_name, nullptr);         \
+    if (value) {                                                               \
+      size_t needed;                                                           \
+      if (!str_copy_formatted(global_var, &needed, FIXED_STRING_FIELD_SZ,      \
+                              "%s", value)) {                                  \
+        g_warning("Unable to load config value '%s': too big for buffer.",     \
+                  key_name);                                                   \
+      }                                                                        \
+      g_free(value);                                                           \
+    }                                                                          \
+  } while (0)
+
+  READ_STRING_KEY("game_lang", game_lang_global);
+  READ_STRING_KEY("wineprefix", wineprefix_global);
+  READ_STRING_KEY("wine_base_dir", wine_base_dir_global);
+  READ_STRING_KEY("patch_url", patch_url_global);
+  READ_STRING_KEY("auth_url", auth_url_global);
+  READ_STRING_KEY("server_list_url", server_list_url_global);
+  READ_STRING_KEY("service_name", service_name_global);
+  READ_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
+
+#undef READ_STRING_KEY
+
+  /* Check for TERA_CUSTOM_WINE_DIR ENV (overrides INI if present) */
+  const char *env_wine_dir = g_getenv("TERA_CUSTOM_WINE_DIR");
+  if (env_wine_dir != NULL) {
+    size_t needed;
+    if (!str_copy_formatted(wine_base_dir_global, &needed,
+                            FIXED_STRING_FIELD_SZ, "%s", env_wine_dir)) {
+      g_warning("Unable to use TERA_CUSTOM_WINE_DIR environment variable "
+                "value: too large for buffer.");
+    }
+  }
+
+// Read boolean values, only update if key exists
+#define READ_BOOL_KEY(key_name, global_var)                                    \
+  do {                                                                         \
+    error = NULL;                                                              \
+    gboolean value =                                                           \
+        g_key_file_get_boolean(keyfile, "Settings", key_name, &error);         \
+    if (!error) {                                                              \
+      global_var = value;                                                      \
+    } else {                                                                   \
+      g_clear_error(&error);                                                   \
+    }                                                                          \
+  } while (0)
+
+  READ_BOOL_KEY("use_gamemoderun", use_gamemoderun);
+  READ_BOOL_KEY("use_gamescope", use_gamescope);
+  READ_BOOL_KEY("use_tera_toolbox", use_tera_toolbox);
+
+#undef READ_BOOL_KEY
+
+  g_key_file_free(keyfile);
+}
+
+/**
+ * @brief Writes current configuration values to "tera-launcher-config.ini".
+ *
+ * @note Empty string values (first character is '\\0') will be omitted from the
+ * output file.
+ * @note If writing fails, the error is silently ignored (existing file remains
+ * unchanged).
+ */
+void config_write_to_ini(void) {
+  GKeyFile *keyfile = g_key_file_new();
+
+// Helper macro to write string keys if they are non-empty
+#define WRITE_STRING_KEY(key_name, global_var)                                 \
+  do {                                                                         \
+    if (global_var[0] != '\0') {                                               \
+      g_key_file_set_string(keyfile, "Settings", key_name, global_var);        \
+    }                                                                          \
+  } while (0)
+
+  WRITE_STRING_KEY("game_lang", game_lang_global);
+  WRITE_STRING_KEY("wineprefix", wineprefix_global);
+  WRITE_STRING_KEY("wine_base_dir", wine_base_dir_global);
+  WRITE_STRING_KEY("patch_url", patch_url_global);
+  WRITE_STRING_KEY("auth_url", auth_url_global);
+  WRITE_STRING_KEY("server_list_url", server_list_url_global);
+  WRITE_STRING_KEY("service_name", service_name_global);
+  WRITE_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
+
+#undef WRITE_STRING_KEY
+
+  // Write boolean values (always written)
+  g_key_file_set_boolean(keyfile, "Settings", "use_gamemoderun",
+                         use_gamemoderun);
+  g_key_file_set_boolean(keyfile, "Settings", "use_gamescope", use_gamescope);
+  g_key_file_set_boolean(keyfile, "Settings", "use_tera_toolbox",
+                         use_tera_toolbox);
+
+  // Save to file
+  gsize length = 0;
+  gchar *data = g_key_file_to_data(keyfile, &length, nullptr);
+  GError *error = nullptr;
+  if (!g_file_set_contents("tera-launcher-config.ini", data, (gssize)length,
+                           &error)) {
+    g_warning("Unable to write config to disk: %s", error->message);
+    g_clear_error(&error);
+  }
+  g_free(data);
+  g_key_file_free(keyfile);
+}

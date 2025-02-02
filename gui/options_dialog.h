@@ -8,6 +8,7 @@
 #ifndef OPTIONS_DIALOG_H
 #define OPTIONS_DIALOG_H
 
+#include "shared_struct_defs.h"
 #include <gtk/gtk.h>
 
 #ifdef __cplusplus
@@ -78,6 +79,26 @@ GtkWidget *create_options_dialog(LauncherData *ld,
                                  void (*update_callback)(LauncherData *ld,
                                                          bool do_repair));
 
+/**
+ * @brief Reads configuration values from "tera-launcher-config.ini" into global
+ * variables.
+ *
+ * @note String values that are too long for their destination buffers will be
+ * truncated via str_copy_formatted(), preserving the existing default value.
+ * @note Errors during file loading are ignored (treated as non-existent config
+ * file).
+ */
+void config_read_from_ini(void);
+
+/**
+ * @brief Writes current configuration values to "tera-launcher-config.ini".
+ *
+ * @note Empty string values (first character is '\\0') will be omitted from the
+ * output file.
+ * @note If writing fails, the error is silently ignored (existing file remains
+ * unchanged).
+ */
+void config_write_to_ini(void);
 #ifdef __cplusplus
 }
 #endif

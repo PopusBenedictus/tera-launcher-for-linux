@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "options_dialog.h"
+
 /**
  * @brief The alert types available for the generic alert dialog used by this
  * launcher.
@@ -110,25 +112,34 @@ char server_list_url_global[FIXED_STRING_FIELD_SZ] = {0};
 char service_name_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
- * @brief Used to store the final update thread message, if any, to update
- * progress bar label when the update resources are being thrown out.
+ * @brief Holds a copy of the path to TERA Toolbox. Entirely user specified and
+ * therefore assumed not available by default.
  */
-static char update_finish_message[FIXED_STRING_FIELD_SZ] = {0};
+char tera_toolbox_path_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
- * @brief Used to determine if we should launch the game with gamemode or not.
+ * @brief If set to TRUE, attempt to launch TERA Online using Feral Game Mode.
+ * Turned off by default.
  */
 bool use_gamemoderun = false;
 
 /**
- * @brief Used to determine if we should launch the game with gamescope or not.
+ * @brief If set to TRUE, attempt to use Steam Gamescope compositor for HDR
+ * support. Turned off by default.
  */
 bool use_gamescope = false;
 
 /**
- * @ Used to determine if we should launch Tera Toolbox through the CLI or not.R
+ * @brief If set to TRUE, attempt to launch TERA Toolbox before launching the
+ * game itself. Turned off by default.
  */
 bool use_tera_toolbox = false;
+
+/**
+ * @brief Used to store the final update thread message, if any, to update
+ * progress bar label when the update resources are being thrown out.
+ */
+static char update_finish_message[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a reference to the GUI stylesheet from the embedded resources.
@@ -922,6 +933,8 @@ static gboolean launcher_init_config(GtkApplication *app) {
                         server_list_url_global);
   parse_and_copy_string(app, launcher_config_json, "wine_prefix_name",
                         wineprefix_global);
+  parse_and_copy_string(app, launcher_config_json, "wine_prefix_name",
+                        wineprefix_default_global);
 
   const char *p = wineprefix_global;
   while (*p) {
@@ -1680,6 +1693,45 @@ static void activate(GtkApplication *app, gpointer user_data) {
   if (!launcher_init_config(app)) {
     g_error("Could not initialize launcher from embedded configuration");
   }
+
+  // Load customizations from the user if present.
+  config_read_from_ini();
+
+  if (use_gamemoderun && !check_gamemode_available()) {
+    g_warning("Setting flag to use Game Mode to FALSE -- did not detect on the "
+              "system.");
+    use_gamemoderun = false;
+  }
+
+  if (use_gamescope && !check_gamescope_available()) {
+    g_warning("Setting flag to use Gamescope to FALSE -- did not detect on the "
+              "system.");
+    use_gamescope = false;
+  }
+
+  if (!validate_wineprefix_name(wineprefix_global)) {
+    if (strcmp(wineprefix_global, wineprefix_default_global) == 0) {
+      g_error("Invalid wineprefix, and the global wineprefix value matches "
+              "invalid. Cannot continue.");
+    }
+    g_warning("Using default wineprefix due to invalid wineprefix specified by "
+              "the user.");
+    strcpy(wineprefix_global, wineprefix_default_global);
+  }
+
+  if (use_tera_toolbox) {
+    if (strlen(tera_toolbox_path_global) == 0) {
+      g_warning("Setting TERA Toolbox flag to FALSE -- no path was given from "
+                "configuration.");
+      use_tera_toolbox = false;
+    } else if (!validate_toolbox_path(tera_toolbox_path_global)) {
+      g_warning(
+          "Setting TERA Toolbox flag to FALSE -- invalid path was provided.");
+    }
+  }
+
+  // Write loaded configuration (and any changes applied above).
+  config_write_to_ini();
 
   GError *error = nullptr;
   style_data_gbytes =

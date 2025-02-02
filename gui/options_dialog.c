@@ -483,7 +483,7 @@ GtkWidget *create_options_dialog(LauncherData *ld,
   g_signal_connect(wineprefix_button, "clicked",
                    G_CALLBACK(on_wineprefix_browse_clicked), dialog);
 
-  GtkWidget *winebase_label = gtk_label_new("Wine Base Directory:");
+  GtkWidget *winebase_label = gtk_label_new("Custom Wine Path:");
   GtkWidget *winebase_entry = gtk_entry_new();
   GtkWidget *winebase_button = gtk_button_new_with_label("Browse...");
   gtk_grid_attach(GTK_GRID(grid), winebase_label, 0, 1, 1, 1);
@@ -493,18 +493,18 @@ GtkWidget *create_options_dialog(LauncherData *ld,
   g_signal_connect(winebase_button, "clicked",
                    G_CALLBACK(on_winebase_browse_clicked), dialog);
 
-  GtkWidget *gamemode_toggle =
-      gtk_check_button_new_with_label("Use Gamemoderun");
+  GtkWidget *gamemode_toggle = gtk_check_button_new_with_label(
+      "Use Feral Game Mode (only selectable if installed)");
   gtk_grid_attach(GTK_GRID(grid), gamemode_toggle, 0, 2, 3, 1);
   g_object_set_data(G_OBJECT(dialog), "gamemode-toggle", gamemode_toggle);
 
-  GtkWidget *gamescope_toggle =
-      gtk_check_button_new_with_label("Use Gamescope");
+  GtkWidget *gamescope_toggle = gtk_check_button_new_with_label(
+      "Use Gamescope (only selectable if installed)");
   gtk_grid_attach(GTK_GRID(grid), gamescope_toggle, 0, 3, 3, 1);
   g_object_set_data(G_OBJECT(dialog), "gamescope-toggle", gamescope_toggle);
 
-  GtkWidget *toolbox_toggle =
-      gtk_check_button_new_with_label("Launch TERA Toolbox");
+  GtkWidget *toolbox_toggle = gtk_check_button_new_with_label(
+      "Launch TERA Toolbox (ignored if no path is provided)");
   GtkWidget *toolbox_entry = gtk_entry_new();
   GtkWidget *toolbox_button = gtk_button_new_with_label("Browse...");
   gtk_grid_attach(GTK_GRID(grid), toolbox_toggle, 0, 4, 3, 1);
@@ -548,9 +548,11 @@ GtkWidget *create_options_dialog(LauncherData *ld,
   }
 
   GtkWidget *action_area = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-  GtkWidget *cancel_button = gtk_button_new_with_label("_Cancel");
-  GtkWidget *ok_button = gtk_button_new_with_label("_OK");
-  GtkWidget *repair_button = gtk_button_new_with_label("_Repair");
+  gtk_widget_set_margin_start(action_area, 10);
+  gtk_widget_set_margin_bottom(action_area, 10);
+  GtkWidget *cancel_button = gtk_button_new_with_label("Cancel");
+  GtkWidget *ok_button = gtk_button_new_with_label("OK");
+  GtkWidget *repair_button = gtk_button_new_with_label("Repair");
   gtk_box_append(GTK_BOX(action_area), cancel_button);
   gtk_box_append(GTK_BOX(action_area), ok_button);
   gtk_box_append(GTK_BOX(action_area), repair_button);
@@ -561,6 +563,7 @@ GtkWidget *create_options_dialog(LauncherData *ld,
                    dialog);
   gtk_box_append(GTK_BOX(vbox), grid);
   gtk_box_append(GTK_BOX(vbox), action_area);
+  gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
   gtk_window_set_child(GTK_WINDOW(dialog), vbox);
 
   return dialog;

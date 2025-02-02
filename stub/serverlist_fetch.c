@@ -9,6 +9,8 @@
 #define _GNU_SOURCE
 #undef WIN32
 #undef _WIN32
+#undef _WIN32_
+#undef __WIN32__
 
 #include "serverlist_fetch.h"
 #include "serverlist.pb-c.h"

@@ -241,6 +241,20 @@ static void on_toolbox_toggled(GtkCheckButton *toggle, gpointer user_data) {
 }
 
 /**
+ * @brief Callback for toggling the Gamescope option.
+ *
+ * Enables or disables the associated args entry textbox based on the toggle
+ * state.
+ *
+ * @param toggle The check button widget.
+ * @param user_data Pointer to the entry widget.
+ */
+static void on_gamescope_toggled(GtkCheckButton *toggle, gpointer user_data) {
+  const gboolean active = gtk_check_button_get_active(toggle);
+  gtk_widget_set_sensitive(GTK_WIDGET(user_data), active);
+}
+
+/**
  * @brief Display an error dialog.
  *
  * Shows a modal error dialog with the specified message.
@@ -267,6 +281,8 @@ static void handle_ok_response(GtkDialog *dialog) {
       GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), "wineprefix-entry"));
   const auto winebase_entry =
       GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), "winebase-entry"));
+  const auto gamescope_entry =
+      GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), "gamescope-entry"));
   const auto gamemode_toggle =
       GTK_CHECK_BUTTON(g_object_get_data(G_OBJECT(dialog), "gamemode-toggle"));
   const auto gamescope_toggle =
@@ -288,6 +304,14 @@ static void handle_ok_response(GtkDialog *dialog) {
   if (!validate_wine_dir(winebase)) {
     show_error_dialog(GTK_WINDOW(dialog),
                       "Invalid wine base directory specified");
+    return;
+  }
+
+  const char *gamescope_args =
+      gtk_entry_buffer_get_text(gtk_entry_get_buffer(gamescope_entry));
+  if (strlen(gamescope_args) == 0) {
+    show_error_dialog(GTK_WINDOW(dialog),
+                      "Cannot enable gamescope without arguments");
     return;
   }
 
@@ -327,6 +351,14 @@ static void handle_ok_response(GtkDialog *dialog) {
     show_error_dialog(
         GTK_WINDOW(dialog),
         "Invalid wine base directory specified, changes will be ignored.");
+  }
+
+  success = str_copy_formatted(gamescope_args_global, &required,
+                               FIXED_STRING_FIELD_SZ, "%s", gamescope_args);
+  if (!success) {
+    show_error_dialog(GTK_WINDOW(dialog),
+                      "Gamescope arguments too large for buffer or invalid, "
+                      "changes will be ignored.");
   }
 
   use_gamemoderun = new_gamemode;
@@ -500,16 +532,25 @@ GtkWidget *create_options_dialog(LauncherData *ld,
 
   GtkWidget *gamescope_toggle = gtk_check_button_new_with_label(
       "Use Gamescope (only selectable if installed)");
+  GtkWidget *gamescope_args_label = gtk_label_new("Gamescope Arguments:");
+  GtkWidget *gamescope_entry = gtk_entry_new();
   gtk_grid_attach(GTK_GRID(grid), gamescope_toggle, 0, 3, 3, 1);
+  gtk_grid_attach(GTK_GRID(grid), gamescope_args_label, 0, 4, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), gamescope_entry, 1, 4, 2, 1);
   g_object_set_data(G_OBJECT(dialog), "gamescope-toggle", gamescope_toggle);
+  g_object_set_data(G_OBJECT(dialog), "gamescope-entry", gamescope_entry);
+  gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(gamescope_entry)),
+                            gamescope_args_global, -1);
+  g_signal_connect(gamescope_toggle, "toggled",
+                   G_CALLBACK(on_gamescope_toggled), gamescope_entry);
 
   GtkWidget *toolbox_toggle = gtk_check_button_new_with_label(
       "Launch TERA Toolbox (ignored if no path is provided)");
   GtkWidget *toolbox_entry = gtk_entry_new();
   GtkWidget *toolbox_button = gtk_button_new_with_label("Browse...");
-  gtk_grid_attach(GTK_GRID(grid), toolbox_toggle, 0, 4, 3, 1);
-  gtk_grid_attach(GTK_GRID(grid), toolbox_entry, 0, 5, 2, 1);
-  gtk_grid_attach(GTK_GRID(grid), toolbox_button, 2, 5, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), toolbox_toggle, 0, 5, 3, 1);
+  gtk_grid_attach(GTK_GRID(grid), toolbox_entry, 0, 6, 2, 1);
+  gtk_grid_attach(GTK_GRID(grid), toolbox_button, 2, 6, 1, 1);
   g_object_set_data(G_OBJECT(dialog), "toolbox-toggle", toolbox_toggle);
   g_object_set_data(G_OBJECT(dialog), "toolbox-entry", toolbox_entry);
   g_signal_connect(toolbox_toggle, "toggled", G_CALLBACK(on_toolbox_toggled),
@@ -540,6 +581,7 @@ GtkWidget *create_options_dialog(LauncherData *ld,
   if (!gamescope_available && use_gamescope)
     use_gamescope = false;
   gtk_widget_set_sensitive(gamescope_toggle, gamescope_available);
+  gtk_widget_set_sensitive(gamescope_entry, use_gamescope);
 
   if (use_tera_toolbox && !validate_toolbox_path(tera_toolbox_path_global)) {
     use_tera_toolbox = false;
@@ -609,6 +651,7 @@ void config_read_from_ini(void) {
   READ_STRING_KEY("wineprefix", wineprefix_global);
   READ_STRING_KEY("wine_base_dir", wine_base_dir_global);
   READ_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
+  READ_STRING_KEY("gamescope_args", gamescope_args_global);
 
 #undef READ_STRING_KEY
 
@@ -667,6 +710,7 @@ void config_write_to_ini(void) {
   WRITE_STRING_KEY("wineprefix", wineprefix_global);
   WRITE_STRING_KEY("wine_base_dir", wine_base_dir_global);
   WRITE_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
+  WRITE_STRING_KEY("gamescope_args", gamescope_args_global);
 
 #undef WRITE_STRING_KEY
 

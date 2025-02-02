@@ -5,16 +5,18 @@
  * http://www.wtfpl.net/ for more details.
  */
 
-#include <stdarg.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <wchar.h>
-#include <windows.h>
 
 #include "serverlist.pb-c.h"
 #include "serverlist_fetch.h"
 #include "teralib.h"
+
+/**
+ * @brief Temporary buffer size for string operations on utf16le strings (e.g.
+ * WCHAR, wchar_t)
+ */
+#define WTMP_BUFFER_SZ (FIXED_STRING_FIELD_SZ * 16)
 
 /**
  * @brief Callback used by EnumWindows to list top-level windows.
@@ -34,13 +36,12 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
 
     /* Get the window title (name) */
     if (GetWindowTextA(hwnd, windowTitle, sizeof(windowTitle))) {
-      printf("Window Handle: 0x%08p, Class Name: %s, Window Title: %s\n",
+      printf("Window Handle: %p, Class Name: %s, Window Title: %s\n",
              (void *)hwnd, className, windowTitle);
     } else {
       /* If the window has no title */
-      printf(
-          "Window Handle: 0x%08p, Class Name: %s, Window Title: [No Title]\n",
-          (void *)hwnd, className);
+      printf("Window Handle: %p, Class Name: %s, Window Title: [No Title]\n",
+             (void *)hwnd, className);
     }
   }
 
@@ -51,11 +52,11 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
  Global credentials structure.
 ----------------------------------------------------*/
 typedef struct {
-  char account_name[256];
-  char characters_count[512];
-  char ticket[256];
-  char game_lang[64];
-  char game_path[512];
+  char account_name[FIXED_STRING_FIELD_SZ];
+  char characters_count[FIXED_STRING_FIELD_SZ];
+  char ticket[FIXED_STRING_FIELD_SZ];
+  char game_lang[FIXED_STRING_FIELD_SZ];
+  char game_path[FIXED_STRING_FIELD_SZ];
 } GameCredentials;
 
 static GameCredentials g_credentials = {0};
@@ -76,15 +77,56 @@ static GameCredentials g_credentials = {0};
 void set_credentials(const char *account_name, const char *characters_count,
                      const char *ticket, const char *game_lang,
                      const char *game_path) {
-  snprintf(g_credentials.account_name, sizeof(g_credentials.account_name), "%s",
-           account_name);
-  snprintf(g_credentials.characters_count,
-           sizeof(g_credentials.characters_count), "%s", characters_count);
-  snprintf(g_credentials.ticket, sizeof(g_credentials.ticket), "%s", ticket);
-  snprintf(g_credentials.game_lang, sizeof(g_credentials.game_lang), "%s",
-           game_lang);
-  snprintf(g_credentials.game_path, sizeof(g_credentials.game_path), "%s",
-           game_path);
+  size_t required;
+  bool success = str_copy_formatted(g_credentials.account_name, &required,
+                                    FIXED_STRING_FIELD_SZ, "%s", account_name);
+  if (!success) {
+    log_message_safe(
+        LOG_LEVEL_CRITICAL,
+        "Failed to allocate %zu bytes for account name in buffer of %zu bytes.",
+        required, FIXED_STRING_FIELD_SZ);
+    exit(1);
+  }
+
+  success = str_copy_formatted(g_credentials.characters_count, &required,
+                               FIXED_STRING_FIELD_SZ, "%s", characters_count);
+  if (!success) {
+    log_message_safe(LOG_LEVEL_CRITICAL,
+                     "Failed to allocate %zu bytes for characters_count in "
+                     "buffer of %zu bytes.",
+                     required, FIXED_STRING_FIELD_SZ);
+    exit(1);
+  }
+
+  success = str_copy_formatted(g_credentials.ticket, &required,
+                               FIXED_STRING_FIELD_SZ, "%s", ticket);
+  if (!success) {
+    log_message_safe(
+        LOG_LEVEL_CRITICAL,
+        "Failed to allocate %zu bytes for ticket in buffer of %zu bytes.",
+        required, FIXED_STRING_FIELD_SZ);
+    exit(1);
+  }
+
+  success = str_copy_formatted(g_credentials.game_lang, &required,
+                               FIXED_STRING_FIELD_SZ, "%s", game_lang);
+  if (!success) {
+    log_message_safe(
+        LOG_LEVEL_CRITICAL,
+        "Failed to allocate %zu bytes for game_lang in buffer of %zu bytes.",
+        required, FIXED_STRING_FIELD_SZ);
+    exit(1);
+  }
+
+  success = str_copy_formatted(g_credentials.game_path, &required,
+                               FIXED_STRING_FIELD_SZ, "%s", game_path);
+  if (!success) {
+    log_message_safe(
+        LOG_LEVEL_CRITICAL,
+        "Failed to allocate %zu bytes for game_path in buffer of %zu bytes.",
+        required, FIXED_STRING_FIELD_SZ);
+    exit(1);
+  }
 }
 
 /**
@@ -184,65 +226,80 @@ bool is_game_running(void) { return (GAME_RUNNING != 0); }
 #endif
 #define WM_GAME_EXITED (WM_USER + 1)
 
-/*----------------------------------------------------
- Minimal logging functions
-----------------------------------------------------*/
-static void info(const char *fmt, ...) {
-  va_list args;
-  va_start(args, fmt);
-  printf("[INFO] ");
-  vprintf(fmt, args);
-  printf("\n");
-  va_end(args);
-}
-
-static void error_log(const char *fmt, ...) {
-  va_list args;
-  va_start(args, fmt);
-  fprintf(stderr, "[ERROR] ");
-  vfprintf(stderr, fmt, args);
-  fprintf(stderr, "\n");
-  va_end(args);
-}
-
-/**
- * @brief Converts a UTF-8 C string to a wide-character (UTF-16) string.
- *
- * @param s Null-terminated UTF-8 C string.
- * @return Dynamically allocated wide-character string, or NULL on failure.
- */
-static WCHAR *to_wstring(const char *s) {
-  if (!s) {
-    return NULL;
+bool wstr_copy_from_utf8(wchar_t *buffer, size_t *size_out, size_t size_in,
+                         char const *source) {
+  if (buffer == nullptr || size_out == nullptr || source == nullptr) {
+    if (size_out != nullptr) {
+      *size_out = 0;
+    }
+    return false;
   }
 
-  int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
-  if (len <= 0) {
-    return NULL;
+  // First pass: how many wide chars are needed (including the null terminator)?
+  printf("Input string, %s length: %lu", source, strlen(source));
+  int needed_wchars = MultiByteToWideChar(CP_UTF8, 0, source,
+                                          -1, // process until null terminator
+                                          nullptr, 0);
+
+  if (needed_wchars <= 0) {
+    *size_out = 0;
+    return false;
   }
 
-  WCHAR *wbuf = malloc((size_t)len * sizeof(WCHAR));
-  if (!wbuf) {
-    error_log("Memory allocation failed in to_wstring");
-    return NULL;
+  // needed_wchars includes the null terminator in wide chars.
+  // The number of bytes (excluding the null terminator) is:
+  //   (needed_wchars - 1) * sizeof(wchar_t).
+  *size_out = (size_t)(needed_wchars - 1) * sizeof(wchar_t);
+
+  // Check if user buffer has enough space (in wide chars).
+  if ((size_t)needed_wchars > size_in) {
+    return false;
   }
-  memset((void *)wbuf, 0, (size_t)len * sizeof(WCHAR));
 
-  info("Input string: %s, input length: %lu, out_sz: %d", s,
-       (unsigned long)strlen(s), len);
+  // Check if it fits in our fixed on-stack buffer:
+  if ((size_t)needed_wchars > WTMP_BUFFER_SZ) {
+    // The converted string won't fit into our on-stack temp array.
+    return false;
+  }
 
-  MultiByteToWideChar(CP_UTF8, 0, s, -1, wbuf, len);
-  return wbuf;
+  // Second pass: convert into our on-stack temporary buffer
+  wchar_t temp_buf[WTMP_BUFFER_SZ];
+
+  int converted =
+      MultiByteToWideChar(CP_UTF8, 0, source, -1, temp_buf, needed_wchars);
+
+  if (converted <= 0) {
+    // Conversion failed
+    return false;
+  }
+
+  // Copy from temp_buf to user buffer (including null terminator).
+  for (int i = 0; i < needed_wchars; i++) {
+    buffer[i] = temp_buf[i];
+  }
+
+  return true;
 }
 
 /**
  * @brief Initializes teralib, creating necessary synchronization objects.
  */
-void teralib_init(void) {
+bool teralib_init(void) {
+  // Initialize logs
+  // TODO: Make this configurable.
+  bool log_init_success;
+#ifdef NDEBUG
+  log_init_success = log_init(LOG_LEVEL_WARNING, "stub");
+#else
+  log_init_success = log_init(LOG_LEVEL_DEBUG, "stub");
+#endif
+  if (!log_init_success)
+    return false;
   InitializeCriticalSection(&g_window_handle_cs);
   g_gameStatusEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
   g_windowCreatedEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-  info("teralib initialized successfully");
+  log_message_safe(LOG_LEVEL_DEBUG, "teralib initialized successfully");
+  return true;
 }
 
 /**
@@ -252,7 +309,7 @@ void teralib_shutdown(void) {
   CloseHandle(g_gameStatusEvent);
   CloseHandle(g_windowCreatedEvent);
   DeleteCriticalSection(&g_window_handle_cs);
-  info("teralib shutdown completed");
+  log_message_safe(LOG_LEVEL_DEBUG, "teralib shutdown completed");
 }
 
 /**
@@ -264,7 +321,7 @@ static void reset_global_state(void) {
   g_window_handle.raw = NULL;
   LeaveCriticalSection(&g_window_handle_cs);
 
-  info("Global state reset completed");
+  log_message_safe(LOG_LEVEL_DEBUG, "Global state reset completed");
 }
 
 /**
@@ -289,9 +346,10 @@ static void send_response_message(WPARAM recipient, HWND sender, DWORD event_id,
   LRESULT result =
       SendMessageW((HWND)recipient, WM_COPYDATA, (WPARAM)sender, (LPARAM)&cds);
 
-  /* For debugging/logging: */
-  info("send_response_message: event_id=%lu, payload_len=%zu, result=%ld",
-       (unsigned long)event_id, length, (long)result);
+  log_message_safe(
+      LOG_LEVEL_TRACE,
+      "send_response_message: event_id=%lu, payload_len=%zu, result=%ld",
+      (unsigned long)event_id, length, (long)result);
 }
 
 /**
@@ -303,11 +361,18 @@ static void send_response_message(WPARAM recipient, HWND sender, DWORD event_id,
  */
 static void handle_account_name_request(WPARAM recipient, HWND sender) {
   const char *account_name = get_account_name();
-  info("Account Name Request - Sending: %s", account_name);
+  log_message_safe(LOG_LEVEL_DEBUG, "Account Name Request - Sending: %s",
+                   account_name);
 
-  WCHAR *wbuf = to_wstring(account_name);
-  if (!wbuf) {
-    /* If conversion fails, send empty or handle error */
+  wchar_t wbuf[FIXED_STRING_FIELD_SZ];
+  size_t required;
+  const bool success =
+      wstr_copy_from_utf8(wbuf, &required, FIXED_STRING_FIELD_SZ, account_name);
+  if (!success) {
+    log_message_safe(LOG_LEVEL_WARNING,
+                     "Failed to allocate %zu bytes for account name into "
+                     "buffer of %zu bytes.",
+                     required, FIXED_STRING_FIELD_SZ * sizeof(wchar_t));
     send_response_message(recipient, sender, 2, NULL, 0);
     return;
   }
@@ -315,13 +380,16 @@ static void handle_account_name_request(WPARAM recipient, HWND sender) {
   /* I would prefer to measure this against wbuf, but since wcslen() seems to
      return an incorrect length in certain environments with winelib, strlen()
      against the input is safer here. */
-  size_t cbSize = strlen(account_name) * sizeof(WCHAR);
+  size_t cbSize = strlen(account_name) * sizeof(wchar_t);
+  log_message_safe(
+      LOG_LEVEL_DEBUG,
+      "Should be sending %zu bytes of account name from %zu bytes input.",
+      required, strlen(account_name));
+  log_message_safe(LOG_LEVEL_DEBUG, "Current cbSize is %zu", cbSize);
 
   /* Send the wide chars as raw bytes WITHOUT null terminator and with
    * event_id=2 */
   send_response_message(recipient, sender, 2, (const void *)wbuf, cbSize);
-
-  free(wbuf);
 }
 
 /**
@@ -333,7 +401,7 @@ static void handle_account_name_request(WPARAM recipient, HWND sender) {
  */
 static void handle_session_ticket_request(WPARAM recipient, HWND sender) {
   const char *session_ticket = get_ticket();
-  info("Session Ticket Request - Sending Ticket");
+  log_message_safe(LOG_LEVEL_DEBUG, "Session Ticket Request - Sending Ticket");
 
   /* Send as raw UTF-8 (C string) WITHOUT null terminator. */
   size_t length = strlen(session_ticket);
@@ -353,12 +421,14 @@ static void handle_server_list_request(WPARAM recipient, HWND sender) {
                                   get_characters_count());
 
   if (!data) {
-    error_log("Failed to get server list; sending empty.");
+    log_message_safe(LOG_LEVEL_ERROR,
+                     "Failed to get server list; sending empty.");
     send_response_message(recipient, sender, 6, NULL, 0);
     return;
   }
 
-  info("Server List Request - Sending %zu bytes.", out_size);
+  log_message_safe(LOG_LEVEL_DEBUG, "Server List Request - Sending %zu bytes.",
+                   out_size);
 
   /* Send with event_id=6 */
   send_response_message(recipient, sender, 6, data, out_size);
@@ -382,13 +452,15 @@ static void handle_game_start(WPARAM recipient, HWND sender,
   (void)payload;
   (void)payload_size;
 
-  info("Game started.");
+  log_message_safe(LOG_LEVEL_INFO, "Game started.");
 }
 
 /**
  * @brief Logs the event of entering the lobby.
  */
-static void on_lobby_entered(void) { info("Entered the lobby"); }
+static void on_lobby_entered(void) {
+  log_message_safe(LOG_LEVEL_DEBUG, "Entered the lobby");
+}
 
 /**
  * @brief Logs the event of entering a specific world.
@@ -396,7 +468,7 @@ static void on_lobby_entered(void) { info("Entered the lobby"); }
  * @param world_name The name of the world being entered.
  */
 static void on_world_entered(const char *world_name) {
-  info("Entered the world: %s", world_name);
+  log_message_safe(LOG_LEVEL_DEBUG, "Entered the world: %s", world_name);
 }
 
 /**
@@ -421,8 +493,10 @@ static void handle_enter_lobby_or_world(WPARAM recipient, HWND sender,
     /* Ensure that payload_len is reasonable to prevent excessive memory
      * allocation */
     if (payload_len > 1024) {
-      error_log("Payload size too large in handle_enter_lobby_or_world: %zu",
-                payload_len);
+      log_message_safe(
+          LOG_LEVEL_ERROR,
+          "Payload size too large in handle_enter_lobby_or_world: %zu",
+          payload_len);
       send_response_message(recipient, sender, 8, NULL, 0);
       return;
     }
@@ -430,7 +504,9 @@ static void handle_enter_lobby_or_world(WPARAM recipient, HWND sender,
     /* Convert payload bytes to a C string for logging or further use */
     char *world_name = (char *)malloc(payload_len + 1);
     if (!world_name) {
-      error_log("Memory allocation failed in handle_enter_lobby_or_world");
+      log_message_safe(
+          LOG_LEVEL_CRITICAL,
+          "Memory allocation failed in handle_enter_lobby_or_world");
       send_response_message(recipient, sender, 8, NULL, 0);
       return;
     }
@@ -462,7 +538,8 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT msg, WPARAM wParam,
   case WM_COPYDATA: {
     PCOPYDATASTRUCT copy_data = (PCOPYDATASTRUCT)lParam;
     DWORD event_id = copy_data->dwData;
-    info("Received WM_COPYDATA with event_id=%lu", (unsigned long)event_id);
+    log_message_safe(LOG_LEVEL_TRACE, "Received WM_COPYDATA with event_id=%lu",
+                     (unsigned long)event_id);
 
     const size_t payload_size = copy_data->cbData;
     unsigned char *payload = NULL;
@@ -472,35 +549,36 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT msg, WPARAM wParam,
 
     switch (event_id) {
     case 1:
-      info("handle_account_name_request");
+      log_message_safe(LOG_LEVEL_TRACE, "handle_account_name_request");
       handle_account_name_request(wParam, hWnd);
       break;
     case 3:
-      info("handle_session_ticket_request");
+      log_message_safe(LOG_LEVEL_TRACE, "handle_session_ticket_request");
       handle_session_ticket_request(wParam, hWnd);
       break;
     case 5:
-      info("handle_server_list_request");
+      log_message_safe(LOG_LEVEL_TRACE, "handle_server_list_request");
       handle_server_list_request(wParam, hWnd);
       break;
     case 7:
-      info("handle_enter_lobby_or_world");
+      log_message_safe(LOG_LEVEL_TRACE, "handle_enter_lobby_or_world");
       handle_enter_lobby_or_world(wParam, hWnd, payload, payload_size);
       break;
     case 1000:
-      info("handle_game_start");
+      log_message_safe(LOG_LEVEL_TRACE, "handle_game_start");
       handle_game_start(wParam, hWnd, payload, payload_size);
       break;
     default:
       /* We do not need to do anything with these, this is just for visibility.
        */
-      info("Unhandled event ID: %lu", (unsigned long)event_id);
+      log_message_safe(LOG_LEVEL_TRACE, "Unhandled event ID: %lu",
+                       (unsigned long)event_id);
       break;
     }
     return 1;
   }
   case WM_GAME_EXITED:
-    info("Received WM_GAME_EXITED in wnd_proc");
+    log_message_safe(LOG_LEVEL_DEBUG, "Received WM_GAME_EXITED in wnd_proc");
     PostQuitMessage(0);
     return 0;
   default:
@@ -529,19 +607,23 @@ static void create_and_run_game_window(void) {
 
   ATOM atom = RegisterClassExA(&wc);
   if (!atom) {
-    error_log("Failed to register window class for Pseudo launcher window");
+    log_message_safe(
+        LOG_LEVEL_CRITICAL,
+        "Failed to register window class for Pseudo launcher window");
     return;
   }
 
   HWND hwnd = CreateWindowExA(0, class_name, window_name, 0, 0, 0, 0, 0, NULL,
                               NULL, wc.hInstance, NULL);
   if (!hwnd) {
-    error_log("Failed to create pseudo window for stub launcher");
+    log_message_safe(LOG_LEVEL_CRITICAL,
+                     "Failed to create pseudo window for stub launcher");
     UnregisterClassA(class_name, wc.hInstance);
     return;
   }
 
-  info("Pseudo window created with HWND=%p", (void *)hwnd);
+  log_message_safe(LOG_LEVEL_TRACE, "Pseudo window created with HWND=%p",
+                   (void *)hwnd);
 
   /* Protect access to g_window_handle */
   EnterCriticalSection(&g_window_handle_cs);
@@ -559,13 +641,14 @@ static void create_and_run_game_window(void) {
   MSG msg;
   while (GetMessageA(&msg, NULL, 0, 0) > 0) {
     if (msg.message == WM_GAME_EXITED) {
-      info("Received WM_GAME_EXITED in message loop");
+      log_message_safe(LOG_LEVEL_TRACE,
+                       "Received WM_GAME_EXITED in message loop");
       break;
     }
     TranslateMessage(&msg);
     DispatchMessageA(&msg);
   }
-  info("Exiting message loop");
+  log_message_safe(LOG_LEVEL_TRACE, "Exiting message loop");
 
   DestroyWindow(hwnd);
   UnregisterClassA(class_name, wc.hInstance);
@@ -600,29 +683,36 @@ static PROCESS_INFORMATION launch_process(const char *path, const char *args) {
 
   char *cmdLine = (char *)calloc(neededLen, sizeof(char));
   if (!cmdLine) {
-    error_log("Memory allocation failed in launch_process");
+    log_message_safe(LOG_LEVEL_CRITICAL,
+                     "Memory allocation failed in launch_process");
     return pi;
   }
 
   /* Example: "C:\\Path\\To\\Game.exe" -LANGUAGEEXT=en */
-  int written = snprintf(cmdLine, neededLen, "\"%s\" %s", path, args);
-  if (written < 0 || (size_t)written >= neededLen) {
-    error_log("snprintf failed or buffer too small in launch_process");
+  size_t required;
+  const bool success = str_copy_formatted(cmdLine, &required, neededLen,
+                                          "\"%s\" %s", path, args);
+  if (!success) {
+    log_message_safe(
+        LOG_LEVEL_CRITICAL,
+        "Failed to allocate %zu bytes info command line buffer of %zu bytes.",
+        required, neededLen);
     free(cmdLine);
     return pi;
   }
 
-  info("Command Line: %s", cmdLine);
+  log_message_safe(LOG_LEVEL_TRACE, "Command Line: %s", cmdLine);
 
-  BOOL success =
+  BOOL proc_success =
       CreateProcessA(NULL, cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
 
   free(cmdLine);
 
-  if (!success) {
+  if (!proc_success) {
     DWORD error_code = GetLastError();
-    error_log("Failed to create process. GetLastError=%lu",
-              (unsigned long)error_code);
+    log_message_safe(LOG_LEVEL_CRITICAL,
+                     "Failed to create process. GetLastError=%lu",
+                     (unsigned long)error_code);
 
     char error_msg[512];
     DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
@@ -637,13 +727,16 @@ static PROCESS_INFORMATION launch_process(const char *path, const char *args) {
           error_msg[msgLen + 1U] = '\0';
         }
       }
-      error_log("CreateProcessA failed: %s", error_msg);
+      log_message_safe(LOG_LEVEL_CRITICAL, "CreateProcessA failed: %s",
+                       error_msg);
     } else {
-      error_log("CreateProcessA failed: Unable to retrieve error message.");
+      log_message_safe(
+          LOG_LEVEL_CRITICAL,
+          "CreateProcessA failed: Unable to retrieve error message.");
     }
   } else {
-    info("Process created successfully: PID=%lu",
-         (unsigned long)pi.dwProcessId);
+    log_message_safe(LOG_LEVEL_TRACE, "Process created successfully: PID=%lu",
+                     (unsigned long)pi.dwProcessId);
   }
 
   return pi;
@@ -682,7 +775,8 @@ static DWORD WINAPI launch_game_thread(LPVOID param) {
   (void)param; /* Unused */
 
   if (is_game_running()) {
-    error_log("Game is already running, aborting launch_game_thread");
+    log_message_safe(LOG_LEVEL_CRITICAL,
+                     "Game is already running, aborting launch_game_thread");
     return 1;
   }
 
@@ -690,8 +784,9 @@ static DWORD WINAPI launch_game_thread(LPVOID param) {
   if (g_gameStatusEvent) {
     SetEvent(g_gameStatusEvent);
   }
-  info("Game status set to running");
-  info("Launching game for account: %s", get_account_name());
+  log_message_safe(LOG_LEVEL_INFO, "Game status set to running");
+  log_message_safe(LOG_LEVEL_INFO, "Launching game for account: %s",
+                   get_account_name());
 
   /* Create the game window in this thread */
   create_and_run_game_window();
@@ -713,34 +808,38 @@ static DWORD WINAPI launch_game_thread(LPVOID param) {
 int run_game(const char *account_name, const char *characters_count,
              const char *ticket, const char *game_lang, const char *game_path,
              const char *server_list_url) {
-  info("Starting run_game function");
+  log_message_safe(LOG_LEVEL_TRACE, "Starting run_game function");
   if (is_game_running()) {
-    error_log("Game is already running");
+    log_message_safe(LOG_LEVEL_TRACE, "Game is already running");
     return -1;
   }
 
   set_credentials(account_name, characters_count, ticket, game_lang, game_path);
 
-  info("Set credentials: Account=%s, CharCount=%s, Ticket=%s, Lang=%s, "
-       "GamePath=%s, ServerListURL=%s",
-       get_account_name(), get_characters_count(),
-       "***", // If you want to view it for debugging purposes, modify this.
-       get_game_lang(), get_game_path(), server_list_url);
+  log_message_safe(
+      LOG_LEVEL_TRACE,
+      "Set credentials: Account=%s, CharCount=%s, Ticket=%s, Lang=%s, "
+      "GamePath=%s, ServerListURL=%s",
+      get_account_name(), get_characters_count(),
+      "***", // If you want to view it for debugging purposes, modify this.
+      get_game_lang(), get_game_path(), server_list_url);
 
   server_list_url_global = server_list_url;
 
   /* Create the game launch thread */
   HANDLE hThread = CreateThread(NULL, 0, launch_game_thread, NULL, 0, NULL);
   if (!hThread) {
-    error_log("Failed to create launch_game_thread");
+    log_message_safe(LOG_LEVEL_CRITICAL, "Failed to create launch_game_thread");
     return -1;
   }
 
   /* Wait for the window to be created */
   DWORD wait_res = WaitForSingleObject(g_windowCreatedEvent, INFINITE);
   if (wait_res != WAIT_OBJECT_0) {
-    error_log("WaitForSingleObject() on g_windowCreatedEvent failed, %lu",
-              (unsigned long)GetLastError());
+    log_message_safe(
+        LOG_LEVEL_CRITICAL,
+        "WaitForSingleObject() on g_windowCreatedEvent failed, %lu",
+        (unsigned long)GetLastError());
   }
 
   /* Build minimal command-line arguments */
@@ -752,11 +851,12 @@ int run_game(const char *account_name, const char *characters_count,
     return -1;
   }
 
-  info("Game process spawned, PID=%lu", (unsigned long)pi.dwProcessId);
+  log_message_safe(LOG_LEVEL_TRACE, "Game process spawned, PID=%lu",
+                   (unsigned long)pi.dwProcessId);
 
   /* Wait for the game to exit */
   int code = wait_for_process_exit(pi);
-  info("Game process exited with status=%d", code);
+  log_message_safe(LOG_LEVEL_TRACE, "Game process exited with status=%d", code);
   CloseHandle(pi.hProcess);
   CloseHandle(pi.hThread);
 
@@ -765,10 +865,13 @@ int run_game(const char *account_name, const char *characters_count,
   HWND local_hwnd = g_window_handle.raw;
   LeaveCriticalSection(&g_window_handle_cs);
   if (local_hwnd) {
-    info("Posting WM_GAME_EXITED message to window");
+    log_message_safe(LOG_LEVEL_TRACE,
+                     "Posting WM_GAME_EXITED message to window");
     PostMessageW(local_hwnd, WM_GAME_EXITED, 0, 0);
   } else {
-    error_log("Window handle not found when trying to post WM_GAME_EXITED");
+    log_message_safe(
+        LOG_LEVEL_ERROR,
+        "Window handle not found when trying to post WM_GAME_EXITED");
   }
 
   return code;

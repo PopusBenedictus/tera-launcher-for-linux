@@ -606,13 +606,8 @@ void config_read_from_ini(void) {
     }                                                                          \
   } while (0)
 
-  READ_STRING_KEY("game_lang", game_lang_global);
   READ_STRING_KEY("wineprefix", wineprefix_global);
   READ_STRING_KEY("wine_base_dir", wine_base_dir_global);
-  READ_STRING_KEY("patch_url", patch_url_global);
-  READ_STRING_KEY("auth_url", auth_url_global);
-  READ_STRING_KEY("server_list_url", server_list_url_global);
-  READ_STRING_KEY("service_name", service_name_global);
   READ_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
 
 #undef READ_STRING_KEY
@@ -669,13 +664,8 @@ void config_write_to_ini(void) {
     }                                                                          \
   } while (0)
 
-  WRITE_STRING_KEY("game_lang", game_lang_global);
   WRITE_STRING_KEY("wineprefix", wineprefix_global);
   WRITE_STRING_KEY("wine_base_dir", wine_base_dir_global);
-  WRITE_STRING_KEY("patch_url", patch_url_global);
-  WRITE_STRING_KEY("auth_url", auth_url_global);
-  WRITE_STRING_KEY("server_list_url", server_list_url_global);
-  WRITE_STRING_KEY("service_name", service_name_global);
   WRITE_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
 
 #undef WRITE_STRING_KEY

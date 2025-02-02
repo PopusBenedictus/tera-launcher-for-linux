@@ -962,7 +962,7 @@ static gboolean launcher_init_config(GtkApplication *app) {
           gtk_application_get_active_window(app), "Configuration Error",
           "Wine prefix contains path separators, which is not valid.",
           ALERT_MSG_ERROR);
-      g_error(error_msg);
+      g_error("%s", error_msg);
     }
     p++;
   }

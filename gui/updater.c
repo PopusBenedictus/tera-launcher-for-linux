@@ -953,7 +953,8 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
                                  total_files, file_name);
     if (!success) {
       g_error("Unable to allocate %zu bytes for progress message into buffer "
-              "of %zu bytes.", required, FIXED_STRING_FIELD_SZ);
+              "of %zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
     }
     g_free(file_name);
     update_progress(callback, current_progress, progress_msg, user_data);

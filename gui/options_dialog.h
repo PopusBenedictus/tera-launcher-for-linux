@@ -17,7 +17,8 @@ extern "C" {
 /**
  * @brief Validate a wineprefix name.
  *
- * Checks that the wineprefix name is non-empty and does not contain '/' or '\' characters.
+ * Checks that the wineprefix name is non-empty and does not contain '/' or '\'
+ * characters.
  *
  * @param name The wineprefix name to validate.
  * @return true if the name is valid, false otherwise.
@@ -27,8 +28,8 @@ bool validate_wineprefix_name(const char *name);
 /**
  * @brief Validate a Wine directory.
  *
- * Checks that the directory exists, contains the required executables in its "bin" subdirectory,
- * and has a "lib" subdirectory.
+ * Checks that the directory exists, contains the required executables in its
+ * "bin" subdirectory, and has a "lib" subdirectory.
  *
  * @param path The directory path to validate.
  * @return true if the directory is valid, false otherwise.
@@ -62,18 +63,20 @@ bool validate_toolbox_path(const char *path);
 /**
  * @brief Create the options dialog.
  *
- * Constructs and returns a dialog that allows users to configure application settings.
- * The dialog includes input fields for the wineprefix name, Wine base directory, and toggles for
- * gamemode, gamescope, and TERA Toolbox. A Repair button is also provided.
+ * Constructs and returns a dialog that allows users to configure application
+ * settings. The dialog includes input fields for the wineprefix name, Wine base
+ * directory, and toggles for gamemode, gamescope, and TERA Toolbox. A Repair
+ * button is also provided.
  *
  * @param ld Pointer to the LauncherData instance.
- * @param update_callback Callback function to initiate the update/repair process.
- *                        This function must have the signature:
- *                        void (*update_callback)(LauncherData *ld, bool do_repair);
+ * @param update_callback Callback function to initiate the update/repair
+ * process. This function must have the signature: void
+ * (*update_callback)(LauncherData *ld, bool do_repair);
  * @return GtkWidget* The created options dialog.
  */
-GtkWidget* create_options_dialog(LauncherData *ld,
-                                 void (*update_callback)(LauncherData *ld, bool do_repair));
+GtkWidget *create_options_dialog(LauncherData *ld,
+                                 void (*update_callback)(LauncherData *ld,
+                                                         bool do_repair));
 
 #ifdef __cplusplus
 }

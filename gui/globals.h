@@ -30,4 +30,4 @@ extern bool use_tera_toolbox;
 }
 #endif
 
-#endif //GLOBALS_H
+#endif // GLOBALS_H

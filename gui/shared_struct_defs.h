@@ -14,10 +14,10 @@
  * @brief Used to capture auth info when a user logs into the TERA server.
  */
 typedef struct {
-    char user_no[FIXED_STRING_FIELD_SZ];
-    char auth_key[FIXED_STRING_FIELD_SZ];
-    char character_count[FIXED_STRING_FIELD_SZ];
-    char welcome_label_msg[FIXED_STRING_FIELD_SZ];
+  char user_no[FIXED_STRING_FIELD_SZ];
+  char auth_key[FIXED_STRING_FIELD_SZ];
+  char character_count[FIXED_STRING_FIELD_SZ];
+  char welcome_label_msg[FIXED_STRING_FIELD_SZ];
 } LoginData;
 
 /**
@@ -25,7 +25,7 @@ typedef struct {
  * state thereof.
  */
 typedef struct {
-    gboolean dragging;
+  gboolean dragging;
 } DragData;
 
 /**
@@ -33,36 +33,36 @@ typedef struct {
  * window moves and other things.
  */
 typedef struct {
-    GtkWidget *window;
-    GtkWidget *base_overlay;
+  GtkWidget *window;
+  GtkWidget *base_overlay;
 
-    // Login pane
-    GtkWidget *login_overlay;
-    GtkWindowHandle *login_window_handle;
-    GtkWidget *user_entry;
-    GtkWidget *pass_entry;
-    GtkWidget *login_btn;
-    GtkWidget *close_login_btn;
+  // Login pane
+  GtkWidget *login_overlay;
+  GtkWindowHandle *login_window_handle;
+  GtkWidget *user_entry;
+  GtkWidget *pass_entry;
+  GtkWidget *login_btn;
+  GtkWidget *close_login_btn;
 
-    // Patch/Play pane
-    GtkWidget *patch_overlay;
-    GtkWindowHandle *patch_window_handle;
-    GtkWidget *welcome_label;
-    GtkWidget *welcome_label_hbox;
-    GtkWidget *footer_label;
-    GtkWidget *play_btn;
-    GtkWidget *logout_btn;
-    GtkWidget *repair_btn;
-    GtkWidget *close_patch_btn;
-    GtkWidget *update_repair_progress_bar;
-    GtkWidget *update_repair_download_bar;
+  // Patch/Play pane
+  GtkWidget *patch_overlay;
+  GtkWindowHandle *patch_window_handle;
+  GtkWidget *welcome_label;
+  GtkWidget *welcome_label_hbox;
+  GtkWidget *footer_label;
+  GtkWidget *play_btn;
+  GtkWidget *logout_btn;
+  GtkWidget *repair_btn;
+  GtkWidget *close_patch_btn;
+  GtkWidget *update_repair_progress_bar;
+  GtkWidget *update_repair_download_bar;
 
-    // Data from do_login
-    LoginData login_data;
+  // Data from do_login
+  LoginData login_data;
 
-    // Gesture controllers
-    GtkEventController *login_controller;
-    GtkEventController *patch_controller;
-    DragData drag_data;
+  // Gesture controllers
+  GtkEventController *login_controller;
+  GtkEventController *patch_controller;
+  DragData drag_data;
 } LauncherData;
-#endif //SHARED_STRUCT_DEFS_H
+#endif // SHARED_STRUCT_DEFS_H

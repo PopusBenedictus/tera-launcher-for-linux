@@ -5,9 +5,9 @@
  * http://www.wtfpl.net/ for more details.
  */
 
+#include "shared_struct_defs.h"
 #include "updater.h"
 #include "util.h"
-#include "shared_struct_defs.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>
 #include <glib.h>

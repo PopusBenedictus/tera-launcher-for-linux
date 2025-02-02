@@ -318,7 +318,7 @@ static void handle_ok_response(GtkDialog *dialog) {
   const bool new_gamemode = gtk_check_button_get_active(gamemode_toggle);
   if (new_gamemode && !check_gamemode_available()) {
     show_error_dialog(GTK_WINDOW(dialog),
-                      "Game Mode not found, will not be enabled");
+                      "Gamemode not found, will not be enabled");
     return;
   }
 
@@ -526,7 +526,7 @@ GtkWidget *create_options_dialog(LauncherData *ld,
                    G_CALLBACK(on_winebase_browse_clicked), dialog);
 
   GtkWidget *gamemode_toggle = gtk_check_button_new_with_label(
-      "Use Feral Game Mode (only selectable if installed)");
+      "Use Feral Gamemode (only selectable if installed)");
   gtk_grid_attach(GTK_GRID(grid), gamemode_toggle, 0, 2, 3, 1);
   g_object_set_data(G_OBJECT(dialog), "gamemode-toggle", gamemode_toggle);
 

@@ -716,23 +716,23 @@ static GtkWidget *create_patch_overlay(LauncherData *ld) {
   // Repair Button
   GdkTexture *rep_tex =
       load_subimage("/com/tera/launcher/repair-btn.png", 0, 0, 50, 50);
-  ld->repair_btn = gtk_button_new();
+  ld->option_menu_btn = gtk_button_new();
   if (rep_tex) {
     GtkWidget *pic = gtk_picture_new_for_paintable(GDK_PAINTABLE(rep_tex));
     gtk_picture_set_content_fit(GTK_PICTURE(pic), GTK_CONTENT_FIT_FILL);
-    gtk_button_set_child(GTK_BUTTON(ld->repair_btn), pic);
-    gtk_widget_add_css_class(ld->repair_btn, "img_button_icons");
+    gtk_button_set_child(GTK_BUTTON(ld->option_menu_btn), pic);
+    gtk_widget_add_css_class(ld->option_menu_btn, "img_button_icons");
     g_object_unref(rep_tex);
   } else {
-    gtk_button_set_label(GTK_BUTTON(ld->repair_btn), "Repair");
+    gtk_button_set_label(GTK_BUTTON(ld->option_menu_btn), "Repair");
   }
-  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->repair_btn);
-  gtk_widget_set_size_request(ld->repair_btn, 50, 50);
-  gtk_widget_set_halign(ld->repair_btn, GTK_ALIGN_START);
-  gtk_widget_set_valign(ld->repair_btn, GTK_ALIGN_START);
-  gtk_widget_set_margin_start(ld->repair_btn, 515);
-  gtk_widget_set_margin_top(ld->repair_btn, 468);
-  gtk_widget_add_css_class(ld->repair_btn, "img_buttons");
+  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->option_menu_btn);
+  gtk_widget_set_size_request(ld->option_menu_btn, 50, 50);
+  gtk_widget_set_halign(ld->option_menu_btn, GTK_ALIGN_START);
+  gtk_widget_set_valign(ld->option_menu_btn, GTK_ALIGN_START);
+  gtk_widget_set_margin_start(ld->option_menu_btn, 515);
+  gtk_widget_set_margin_top(ld->option_menu_btn, 468);
+  gtk_widget_add_css_class(ld->option_menu_btn, "img_buttons");
 
   // Close Button
   GdkTexture *close_patch_tex =
@@ -1009,7 +1009,7 @@ static gboolean progress_bar_final_callback(gpointer data) {
 static gboolean button_status_callback(gpointer data) {
   const UpdateThreadData *td = data;
   gtk_widget_set_sensitive(td->ld->play_btn, td->play_button_enabled);
-  gtk_widget_set_sensitive(td->ld->repair_btn, td->repair_button_enabled);
+  gtk_widget_set_sensitive(td->ld->option_menu_btn, td->repair_button_enabled);
   return FALSE;
 }
 
@@ -1113,7 +1113,7 @@ static gpointer update_thread_func(gpointer data) {
  */
 static void start_update_process(LauncherData *ld, bool do_repair) {
   // Disable the repair and play buttons to prevent multiple updates
-  gtk_widget_set_sensitive(ld->repair_btn, FALSE);
+  gtk_widget_set_sensitive(ld->option_menu_btn, FALSE);
   gtk_widget_set_sensitive(ld->play_btn, FALSE);
 
   // Reset the progress bar
@@ -1137,7 +1137,7 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
       gtk_progress_bar_set_text(
           GTK_PROGRESS_BAR(ld->update_repair_progress_bar), "Update failed.");
 
-    gtk_widget_set_sensitive(ld->repair_btn, TRUE);
+    gtk_widget_set_sensitive(ld->option_menu_btn, TRUE);
     gtk_widget_set_sensitive(ld->play_btn, TRUE);
     return;
   }
@@ -1167,7 +1167,7 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
       gtk_progress_bar_set_text(
           GTK_PROGRESS_BAR(ld->update_repair_progress_bar), "Update failed.");
 
-    gtk_widget_set_sensitive(ld->repair_btn, TRUE);
+    gtk_widget_set_sensitive(ld->option_menu_btn, TRUE);
     gtk_widget_set_sensitive(ld->play_btn, TRUE);
     g_free(thread_data->update_data.game_path);
     free(thread_data);
@@ -1190,7 +1190,7 @@ static gboolean restore_launcher_callback(gpointer user_data) {
 
   gtk_widget_set_sensitive(cb_data->ld->window, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->play_btn, TRUE);
-  gtk_widget_set_sensitive(cb_data->ld->repair_btn, TRUE);
+  gtk_widget_set_sensitive(cb_data->ld->option_menu_btn, TRUE);
   gtk_window_present(GTK_WINDOW(cb_data->ld->window));
 
   free(cb_data);
@@ -1525,55 +1525,13 @@ static void on_logout_clicked(GtkButton *btn, gpointer user_data) {
 }
 
 /**
- * @brief Handles alert dialog responses
+ * @brief Callback function for handling option menu button clicks.
  */
-static void on_repair_dialog_response(GtkAlertDialog *dialog,
-                                      GAsyncResult *result,
-                                      gpointer user_data) {
-  LauncherData *ld = user_data;
-  GError *error = nullptr;
-
-  // Get response with proper error handling
-  gint response =
-      gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, &error);
-
-  if (error) {
-    g_warning("Dialog error: %s", error->message);
-    g_error_free(error);
-    return;
-  }
-
-  if (response == 1) { // Repair button index
-    g_message("Initiating file repair");
-    start_update_process(ld, TRUE);
-  } else {
-    g_message("Repair canceled");
-  }
-}
-
-/**
- * @brief Callback function for handling repair button clicks.
- */
-static void on_repair_clicked(GtkButton *btn, gpointer user_data) {
+static void on_options_clicked(GtkButton *btn, gpointer user_data) {
   (void)btn; // Unused.
   LauncherData *ld = user_data;
-
-  // Create and configure the alert dialog
-  GtkAlertDialog *dialog =
-      gtk_alert_dialog_new("Are you sure you want to initiate repair?");
-  gtk_alert_dialog_set_detail(
-      dialog,
-      "This will verify and repair game files. It may take a long time.");
-  gtk_alert_dialog_set_buttons(dialog,
-                               (const char *[]){"_Cancel", "_Repair", nullptr});
-
-  // Present the dialog and handle response
-  gtk_alert_dialog_choose(dialog, GTK_WINDOW(ld->window),
-                          nullptr, // No cancellable
-                          (GAsyncReadyCallback)on_repair_dialog_response, ld);
-
-  // Release our reference - dialog manages its own lifetime
-  g_object_unref(dialog);
+  GtkWidget *dialog = create_options_dialog(ld, start_update_process);
+  gtk_window_present(GTK_WINDOW(dialog));
 }
 
 /**
@@ -1777,8 +1735,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
   g_signal_connect(ld->play_btn, "clicked", G_CALLBACK(on_play_clicked), ld);
   g_signal_connect(ld->logout_btn, "clicked", G_CALLBACK(on_logout_clicked),
                    ld);
-  g_signal_connect(ld->repair_btn, "clicked", G_CALLBACK(on_repair_clicked),
-                   ld);
+  g_signal_connect(ld->option_menu_btn, "clicked",
+                   G_CALLBACK(on_options_clicked), ld);
   g_signal_connect(ld->close_patch_btn, "clicked",
                    G_CALLBACK(on_close_patch_clicked), ld);
 

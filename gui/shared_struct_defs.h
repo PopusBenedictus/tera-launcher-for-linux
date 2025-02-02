@@ -9,6 +9,7 @@
 #define SHARED_STRUCT_DEFS_H
 
 #include <gtk/gtk.h>
+#include <util.h>
 
 /**
  * @brief Used to capture auth info when a user logs into the TERA server.
@@ -52,7 +53,7 @@ typedef struct {
   GtkWidget *footer_label;
   GtkWidget *play_btn;
   GtkWidget *logout_btn;
-  GtkWidget *repair_btn;
+  GtkWidget *option_menu_btn;
   GtkWidget *close_patch_btn;
   GtkWidget *update_repair_progress_bar;
   GtkWidget *update_repair_download_bar;

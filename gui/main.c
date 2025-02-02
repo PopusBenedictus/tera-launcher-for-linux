@@ -117,6 +117,12 @@ char service_name_global[FIXED_STRING_FIELD_SZ] = {0};
 char tera_toolbox_path_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
+ * @brief User specified args string for Gamescope. These are required if the
+ * user chooses to enable Gamescope by setting use_gamescope to TRUE.
+ */
+char gamescope_args_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief If set to TRUE, attempt to launch TERA Online using Feral Game Mode.
  * Turned off by default.
  */

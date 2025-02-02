@@ -23,6 +23,7 @@ extern char auth_url_global[FIXED_STRING_FIELD_SZ];
 extern char server_list_url_global[FIXED_STRING_FIELD_SZ];
 extern char service_name_global[FIXED_STRING_FIELD_SZ];
 extern char tera_toolbox_path_global[FIXED_STRING_FIELD_SZ];
+extern char gamescope_args_global[FIXED_STRING_FIELD_SZ];
 extern bool use_gamemoderun;
 extern bool use_gamescope;
 extern bool use_tera_toolbox;

@@ -102,8 +102,8 @@ static void on_wineprefix_selected(GObject *source, GAsyncResult *result,
                                    gpointer user_data) {
   GtkEntry *entry = GTK_ENTRY(user_data);
   GError *error = nullptr;
-  GFile *file =
-      gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, &error);
+  GFile *file = gtk_file_dialog_select_folder_finish(GTK_FILE_DIALOG(source),
+                                                     result, &error);
   if (file) {
     g_autofree const char *path = g_file_get_path(file);
     if (path) {
@@ -132,8 +132,9 @@ static void on_wineprefix_browse_clicked(GtkButton *button,
   GtkFileDialog *dialog = gtk_file_dialog_new();
   gtk_file_dialog_set_title(dialog, "Select Wineprefix Directory");
   gtk_file_dialog_set_modal(dialog, TRUE);
-  gtk_file_dialog_open(dialog, parent, nullptr,
-                       (GAsyncReadyCallback)on_wineprefix_selected, entry);
+  gtk_file_dialog_select_folder(dialog, parent, nullptr,
+                                (GAsyncReadyCallback)on_wineprefix_selected,
+                                entry);
 }
 
 /**
@@ -149,8 +150,8 @@ static void on_winebase_selected(GObject *source, GAsyncResult *result,
                                  gpointer user_data) {
   GtkEntry *entry = GTK_ENTRY(user_data);
   GError *error = nullptr;
-  GFile *file =
-      gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, &error);
+  GFile *file = gtk_file_dialog_select_folder_finish(GTK_FILE_DIALOG(source),
+                                                     result, &error);
   if (file) {
     g_autofree char *path = g_file_get_path(file);
     if (path)
@@ -176,8 +177,9 @@ static void on_winebase_browse_clicked(GtkButton *button, gpointer user_data) {
   GtkFileDialog *dialog = gtk_file_dialog_new();
   gtk_file_dialog_set_title(dialog, "Select Wine Base Directory");
   gtk_file_dialog_set_modal(dialog, TRUE);
-  gtk_file_dialog_open(dialog, parent, nullptr,
-                       (GAsyncReadyCallback)on_winebase_selected, entry);
+  gtk_file_dialog_select_folder(dialog, parent, nullptr,
+                                (GAsyncReadyCallback)on_winebase_selected,
+                                entry);
 }
 
 /**
@@ -193,8 +195,8 @@ static void on_toolbox_selected(GObject *source, GAsyncResult *result,
                                 gpointer user_data) {
   const auto entry = GTK_ENTRY(user_data);
   GError *error = nullptr;
-  GFile *file =
-      gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, &error);
+  GFile *file = gtk_file_dialog_select_folder_finish(GTK_FILE_DIALOG(source),
+                                                     result, &error);
   if (file) {
     g_autofree const char *path = g_file_get_path(file);
     if (path)
@@ -221,8 +223,8 @@ static void on_toolbox_browse_clicked(GtkButton *button, gpointer user_data) {
   GtkFileDialog *dialog = gtk_file_dialog_new();
   gtk_file_dialog_set_title(dialog, "Select TERA Toolbox Folder");
   gtk_file_dialog_set_modal(dialog, TRUE);
-  gtk_file_dialog_open(dialog, parent, nullptr,
-                       (GAsyncReadyCallback)on_toolbox_selected, entry);
+  gtk_file_dialog_select_folder(
+      dialog, parent, nullptr, (GAsyncReadyCallback)on_toolbox_selected, entry);
 }
 
 /**

@@ -5,8 +5,8 @@
  * http://www.wtfpl.net/ for more details.
  */
 
+#include "shared_struct_defs.h"
 #include "updater.h"
-#include "util.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>
 #include <glib.h>
@@ -14,6 +14,8 @@
 #include <jansson.h>
 #include <stdlib.h>
 #include <unistd.h>
+
+#include "options_dialog.h"
 
 /**
  * @brief The alert types available for the generic alert dialog used by this
@@ -24,64 +26,6 @@ typedef enum {
   ALERT_MSG_WARNING,
   ALERT_MSG_ERROR
 } AlertMessageType;
-
-/**
- * @brief Used to capture auth info when a user logs into the TERA server. TODO:
- * implement bounds checks here because we could easily exceed these limits and
- * cause a crash.
- */
-typedef struct {
-  char user_no[FIXED_STRING_FIELD_SZ];
-  char auth_key[FIXED_STRING_FIELD_SZ];
-  char character_count[FIXED_STRING_FIELD_SZ];
-  char welcome_label_msg[FIXED_STRING_FIELD_SZ];
-} LoginData;
-
-/**
- * @brief Used to help with the manual window dragging callback and storing the
- * state thereof.
- */
-typedef struct {
-  gboolean dragging;
-} DragData;
-
-/**
- * @brief Used to store all the GUI widgets and possibly some state relating to
- * window moves and other things.
- */
-typedef struct {
-  GtkWidget *window;
-  GtkWidget *base_overlay;
-
-  // Login pane
-  GtkWidget *login_overlay;
-  GtkWindowHandle *login_window_handle;
-  GtkWidget *user_entry;
-  GtkWidget *pass_entry;
-  GtkWidget *login_btn;
-  GtkWidget *close_login_btn;
-
-  // Patch/Play pane
-  GtkWidget *patch_overlay;
-  GtkWindowHandle *patch_window_handle;
-  GtkWidget *welcome_label;
-  GtkWidget *welcome_label_hbox;
-  GtkWidget *footer_label;
-  GtkWidget *play_btn;
-  GtkWidget *logout_btn;
-  GtkWidget *repair_btn;
-  GtkWidget *close_patch_btn;
-  GtkWidget *update_repair_progress_bar;
-  GtkWidget *update_repair_download_bar;
-
-  // Data from do_login
-  LoginData login_data;
-
-  // Gesture controllers
-  GtkEventController *login_controller;
-  GtkEventController *patch_controller;
-  DragData drag_data;
-} LauncherData;
 
 /**
  * @brief Structure to hold data for launching the game.
@@ -124,35 +68,77 @@ struct CurlResponse {
 };
 
 /**
- * @brief Game language string from the embedded sjon resource.
+ * @brief Game language string from the embedded json resource.
  */
-static char game_lang_global[FIXED_STRING_FIELD_SZ] = {0};
+char game_lang_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Wineprefix folder name from the embedded json resource.
  */
-static char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Wineprefix folder name from the embedded json resource (default
+ * value).
+ */
+char wineprefix_default_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief If specified by the user, a path to a custom build of wine. Unset by
+ * default.
+ */
+char wine_base_dir_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the patch url root.
  */
-static char patch_url_global[FIXED_STRING_FIELD_SZ] = {0};
+char patch_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the auth url root.
  */
-static char auth_url_global[FIXED_STRING_FIELD_SZ] = {0};
+char auth_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the server list url.
  */
-static char server_list_url_global[FIXED_STRING_FIELD_SZ] = {0};
+char server_list_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the service name that is displayed in the patch window
  * footer.
  */
-static char service_name_global[FIXED_STRING_FIELD_SZ] = {0};
+char service_name_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Holds a copy of the path to TERA Toolbox. Entirely user specified and
+ * therefore assumed not available by default.
+ */
+char tera_toolbox_path_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief User specified args string for Gamescope. These are required if the
+ * user chooses to enable Gamescope by setting use_gamescope to TRUE.
+ */
+char gamescope_args_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief If set to TRUE, attempt to launch TERA Online using Feral Game Mode.
+ * Turned off by default.
+ */
+bool use_gamemoderun = false;
+
+/**
+ * @brief If set to TRUE, attempt to use Steam Gamescope compositor for HDR
+ * support. Turned off by default.
+ */
+bool use_gamescope = false;
+
+/**
+ * @brief If set to TRUE, attempt to launch TERA Toolbox before launching the
+ * game itself. Turned off by default.
+ */
+bool use_tera_toolbox = false;
 
 /**
  * @brief Used to store the final update thread message, if any, to update
@@ -736,23 +722,23 @@ static GtkWidget *create_patch_overlay(LauncherData *ld) {
   // Repair Button
   GdkTexture *rep_tex =
       load_subimage("/com/tera/launcher/repair-btn.png", 0, 0, 50, 50);
-  ld->repair_btn = gtk_button_new();
+  ld->option_menu_btn = gtk_button_new();
   if (rep_tex) {
     GtkWidget *pic = gtk_picture_new_for_paintable(GDK_PAINTABLE(rep_tex));
     gtk_picture_set_content_fit(GTK_PICTURE(pic), GTK_CONTENT_FIT_FILL);
-    gtk_button_set_child(GTK_BUTTON(ld->repair_btn), pic);
-    gtk_widget_add_css_class(ld->repair_btn, "img_button_icons");
+    gtk_button_set_child(GTK_BUTTON(ld->option_menu_btn), pic);
+    gtk_widget_add_css_class(ld->option_menu_btn, "img_button_icons");
     g_object_unref(rep_tex);
   } else {
-    gtk_button_set_label(GTK_BUTTON(ld->repair_btn), "Repair");
+    gtk_button_set_label(GTK_BUTTON(ld->option_menu_btn), "Repair");
   }
-  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->repair_btn);
-  gtk_widget_set_size_request(ld->repair_btn, 50, 50);
-  gtk_widget_set_halign(ld->repair_btn, GTK_ALIGN_START);
-  gtk_widget_set_valign(ld->repair_btn, GTK_ALIGN_START);
-  gtk_widget_set_margin_start(ld->repair_btn, 515);
-  gtk_widget_set_margin_top(ld->repair_btn, 468);
-  gtk_widget_add_css_class(ld->repair_btn, "img_buttons");
+  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->option_menu_btn);
+  gtk_widget_set_size_request(ld->option_menu_btn, 50, 50);
+  gtk_widget_set_halign(ld->option_menu_btn, GTK_ALIGN_START);
+  gtk_widget_set_valign(ld->option_menu_btn, GTK_ALIGN_START);
+  gtk_widget_set_margin_start(ld->option_menu_btn, 515);
+  gtk_widget_set_margin_top(ld->option_menu_btn, 468);
+  gtk_widget_add_css_class(ld->option_menu_btn, "img_buttons");
 
   // Close Button
   GdkTexture *close_patch_tex =
@@ -952,6 +938,8 @@ static gboolean launcher_init_config(GtkApplication *app) {
                         server_list_url_global);
   parse_and_copy_string(app, launcher_config_json, "wine_prefix_name",
                         wineprefix_global);
+  parse_and_copy_string(app, launcher_config_json, "wine_prefix_name",
+                        wineprefix_default_global);
 
   const char *p = wineprefix_global;
   while (*p) {
@@ -1027,7 +1015,7 @@ static gboolean progress_bar_final_callback(gpointer data) {
 static gboolean button_status_callback(gpointer data) {
   const UpdateThreadData *td = data;
   gtk_widget_set_sensitive(td->ld->play_btn, td->play_button_enabled);
-  gtk_widget_set_sensitive(td->ld->repair_btn, td->repair_button_enabled);
+  gtk_widget_set_sensitive(td->ld->option_menu_btn, td->repair_button_enabled);
   return FALSE;
 }
 
@@ -1131,7 +1119,7 @@ static gpointer update_thread_func(gpointer data) {
  */
 static void start_update_process(LauncherData *ld, bool do_repair) {
   // Disable the repair and play buttons to prevent multiple updates
-  gtk_widget_set_sensitive(ld->repair_btn, FALSE);
+  gtk_widget_set_sensitive(ld->option_menu_btn, FALSE);
   gtk_widget_set_sensitive(ld->play_btn, FALSE);
 
   // Reset the progress bar
@@ -1155,7 +1143,7 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
       gtk_progress_bar_set_text(
           GTK_PROGRESS_BAR(ld->update_repair_progress_bar), "Update failed.");
 
-    gtk_widget_set_sensitive(ld->repair_btn, TRUE);
+    gtk_widget_set_sensitive(ld->option_menu_btn, TRUE);
     gtk_widget_set_sensitive(ld->play_btn, TRUE);
     return;
   }
@@ -1185,7 +1173,7 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
       gtk_progress_bar_set_text(
           GTK_PROGRESS_BAR(ld->update_repair_progress_bar), "Update failed.");
 
-    gtk_widget_set_sensitive(ld->repair_btn, TRUE);
+    gtk_widget_set_sensitive(ld->option_menu_btn, TRUE);
     gtk_widget_set_sensitive(ld->play_btn, TRUE);
     g_free(thread_data->update_data.game_path);
     free(thread_data);
@@ -1208,7 +1196,7 @@ static gboolean restore_launcher_callback(gpointer user_data) {
 
   gtk_widget_set_sensitive(cb_data->ld->window, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->play_btn, TRUE);
-  gtk_widget_set_sensitive(cb_data->ld->repair_btn, TRUE);
+  gtk_widget_set_sensitive(cb_data->ld->option_menu_btn, TRUE);
   gtk_window_present(GTK_WINDOW(cb_data->ld->window));
 
   free(cb_data);
@@ -1543,55 +1531,13 @@ static void on_logout_clicked(GtkButton *btn, gpointer user_data) {
 }
 
 /**
- * @brief Handles alert dialog responses
+ * @brief Callback function for handling option menu button clicks.
  */
-static void on_repair_dialog_response(GtkAlertDialog *dialog,
-                                      GAsyncResult *result,
-                                      gpointer user_data) {
-  LauncherData *ld = user_data;
-  GError *error = nullptr;
-
-  // Get response with proper error handling
-  gint response =
-      gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, &error);
-
-  if (error) {
-    g_warning("Dialog error: %s", error->message);
-    g_error_free(error);
-    return;
-  }
-
-  if (response == 1) { // Repair button index
-    g_message("Initiating file repair");
-    start_update_process(ld, TRUE);
-  } else {
-    g_message("Repair canceled");
-  }
-}
-
-/**
- * @brief Callback function for handling repair button clicks.
- */
-static void on_repair_clicked(GtkButton *btn, gpointer user_data) {
+static void on_options_clicked(GtkButton *btn, gpointer user_data) {
   (void)btn; // Unused.
   LauncherData *ld = user_data;
-
-  // Create and configure the alert dialog
-  GtkAlertDialog *dialog =
-      gtk_alert_dialog_new("Are you sure you want to initiate repair?");
-  gtk_alert_dialog_set_detail(
-      dialog,
-      "This will verify and repair game files. It may take a long time.");
-  gtk_alert_dialog_set_buttons(dialog,
-                               (const char *[]){"_Cancel", "_Repair", nullptr});
-
-  // Present the dialog and handle response
-  gtk_alert_dialog_choose(dialog, GTK_WINDOW(ld->window),
-                          nullptr, // No cancellable
-                          (GAsyncReadyCallback)on_repair_dialog_response, ld);
-
-  // Release our reference - dialog manages its own lifetime
-  g_object_unref(dialog);
+  GtkWidget *dialog = create_options_dialog(ld, start_update_process);
+  gtk_window_present(GTK_WINDOW(dialog));
 }
 
 /**
@@ -1711,6 +1657,45 @@ static void activate(GtkApplication *app, gpointer user_data) {
     g_error("Could not initialize launcher from embedded configuration");
   }
 
+  // Load customizations from the user if present.
+  config_read_from_ini();
+
+  if (use_gamemoderun && !check_gamemode_available()) {
+    g_warning("Setting flag to use Game Mode to FALSE -- did not detect on the "
+              "system.");
+    use_gamemoderun = false;
+  }
+
+  if (use_gamescope && !check_gamescope_available()) {
+    g_warning("Setting flag to use Gamescope to FALSE -- did not detect on the "
+              "system.");
+    use_gamescope = false;
+  }
+
+  if (!validate_wineprefix_name(wineprefix_global)) {
+    if (strcmp(wineprefix_global, wineprefix_default_global) == 0) {
+      g_error("Invalid wineprefix, and the global wineprefix value matches "
+              "invalid. Cannot continue.");
+    }
+    g_warning("Using default wineprefix due to invalid wineprefix specified by "
+              "the user.");
+    strcpy(wineprefix_global, wineprefix_default_global);
+  }
+
+  if (use_tera_toolbox) {
+    if (strlen(tera_toolbox_path_global) == 0) {
+      g_warning("Setting TERA Toolbox flag to FALSE -- no path was given from "
+                "configuration.");
+      use_tera_toolbox = false;
+    } else if (!validate_toolbox_path(tera_toolbox_path_global)) {
+      g_warning(
+          "Setting TERA Toolbox flag to FALSE -- invalid path was provided.");
+    }
+  }
+
+  // Write loaded configuration (and any changes applied above).
+  config_write_to_ini();
+
   GError *error = nullptr;
   style_data_gbytes =
       g_resources_lookup_data("/com/tera/launcher/styles.css", 0, &error);
@@ -1756,8 +1741,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
   g_signal_connect(ld->play_btn, "clicked", G_CALLBACK(on_play_clicked), ld);
   g_signal_connect(ld->logout_btn, "clicked", G_CALLBACK(on_logout_clicked),
                    ld);
-  g_signal_connect(ld->repair_btn, "clicked", G_CALLBACK(on_repair_clicked),
-                   ld);
+  g_signal_connect(ld->option_menu_btn, "clicked",
+                   G_CALLBACK(on_options_clicked), ld);
   g_signal_connect(ld->close_patch_btn, "clicked",
                    G_CALLBACK(on_close_patch_clicked), ld);
 
@@ -1809,7 +1794,7 @@ int main(const int argc, char **argv) {
   g_signal_connect(app, "activate", G_CALLBACK(activate), &ld);
 
   // Run the application
-  int status = g_application_run(G_APPLICATION(app), argc, argv);
+  const int status = g_application_run(G_APPLICATION(app), argc, argv);
 
   // Clean up
   g_object_unref(app);

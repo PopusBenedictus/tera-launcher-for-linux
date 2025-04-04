@@ -8,6 +8,14 @@ set(GTK_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gtk-assets")
 set(GTK_ASSETS_OUTPUT_DIR "${CMAKE_BINARY_DIR}/gtk-assets")
 set(GRESOURCE_XML "${GTK_ASSETS_DIR}/mylauncher.gresource.xml")
 set(GRESOURCE_C "${CMAKE_BINARY_DIR}/generated/mylauncher.gresource.c")
+if(CUSTOM_CONFIG_PATH STREQUAL "default")
+    set(CONFIG_FILE_PATH "${GTK_ASSETS_DIR}/launcher-config.json")
+else()
+    if(NOT EXISTS "${CUSTOM_CONFIG_PATH}" OR IS_DIRECTORY "${CUSTOM_CONFIG_PATH}")
+        message(FATAL_ERROR "Provided custom config file path is invalid: '${CUSTOM_CONFIG_PATH}'.")
+    endif()
+    set(CONFIG_FILE_PATH "${CUSTOM_CONFIG_PATH}")
+endif()
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 
@@ -45,7 +53,7 @@ add_custom_command(
         OUTPUT ${ASSETS_STAMP}
         COMMAND ${Python3_EXECUTABLE} ${FETCH_ASSETS_SCRIPT} ${GTK_ASSETS_DIR} ${GTK_ASSETS_OUTPUT_DIR}
         COMMAND ${CMAKE_COMMAND} -E touch ${ASSETS_STAMP}
-        DEPENDS ${GTK_ASSETS_DIR}/launcher-config.json
+        DEPENDS ${CONFIG_FILE_PATH}
         COMMENT "Fetching launcher assets using launcher-config.json..."
 )
 add_custom_target(fetch_launcher_assets

@@ -7,6 +7,7 @@ set(COMMON_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
+set(CUSTOM_CONFIG_PATH "default" CACHE STRING "Path to a custom launcher-config.json if desired")
 
 # --------------------------------------------------------------------------
 # Build the utils subproject (with preferred native toolchain)

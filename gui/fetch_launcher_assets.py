@@ -23,11 +23,12 @@ def download_asset(url, dest_path):
             f.write(data)
 
 def main():
-    if len(sys.argv) != 2:
-        print('Usage: fetch_launcher_assets.py <gtk-assets-dir>')
+    if len(sys.argv) != 3:
+        print('Usage: fetch_launcher_assets.py <gtk-assets-dir> <gtk-assets-output-dir>')
         sys.exit(1)
 
     assets_dir = sys.argv[1]
+    assets_output_dir = sys.argv[2]
     config_path = os.path.join(assets_dir, 'launcher-config.json')
 
     try:
@@ -44,7 +45,7 @@ def main():
         sys.exit(1)
 
     for asset in assets:
-        dest_path = os.path.join(assets_dir, asset)
+        dest_path = os.path.join(assets_output_dir, asset)
         if not os.path.exists(dest_path):
             print(f'Downloading {asset} from {base_url.rstrip("/")}/{asset}...')
             url = base_url.rstrip('/') + '/' + asset

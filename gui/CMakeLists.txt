@@ -5,6 +5,7 @@ set(CMAKE_C_STANDARD 23)
 
 # Directories for GTK assets and resource generation
 set(GTK_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gtk-assets")
+set(GTK_ASSETS_OUTPUT_DIR "${CMAKE_BINARY_DIR}/gtk-assets")
 set(GRESOURCE_XML "${GTK_ASSETS_DIR}/mylauncher.gresource.xml")
 set(GRESOURCE_C "${CMAKE_BINARY_DIR}/generated/mylauncher.gresource.c")
 
@@ -39,10 +40,10 @@ set(FETCH_ASSETS_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/fetch_launcher_assets.py")
 # Step 2: Add a custom command to fetch the assets.
 # A stamp file (.assets_downloaded) will be created in the gtk-assets directory when successful.
 #############################################
-set(ASSETS_STAMP "${GTK_ASSETS_DIR}/.assets_downloaded")
+set(ASSETS_STAMP "${GTK_ASSETS_OUTPUT_DIR}/.assets_downloaded")
 add_custom_command(
         OUTPUT ${ASSETS_STAMP}
-        COMMAND ${Python3_EXECUTABLE} ${FETCH_ASSETS_SCRIPT} ${GTK_ASSETS_DIR}
+        COMMAND ${Python3_EXECUTABLE} ${FETCH_ASSETS_SCRIPT} ${GTK_ASSETS_DIR} ${GTK_ASSETS_OUTPUT_DIR}
         COMMAND ${CMAKE_COMMAND} -E touch ${ASSETS_STAMP}
         DEPENDS ${GTK_ASSETS_DIR}/launcher-config.json
         COMMENT "Fetching launcher assets using launcher-config.json..."

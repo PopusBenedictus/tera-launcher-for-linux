@@ -15,7 +15,6 @@ CUSTOM_HEADERS = {
 }
 
 def download_asset(url, dest_path):
-    """Helper function to download a file from a given URL using custom headers."""
     req = urllib.request.Request(url, headers=CUSTOM_HEADERS)
     with urllib.request.urlopen(req) as response:
         data = response.read()
@@ -24,13 +23,21 @@ def download_asset(url, dest_path):
 
 def main():
     if len(sys.argv) != 3:
-        print('Usage: fetch_launcher_assets.py <gtk-assets-dir> <gtk-assets-output-dir>')
+        print('Usage: fetch_launcher_assets.py <gtk-assets-output-dir> <assets-config-path>')
         sys.exit(1)
 
-    assets_dir = sys.argv[1]
-    assets_output_dir = sys.argv[2]
-    config_path = os.path.join(assets_dir, 'launcher-config.json')
+    assets_output_dir = sys.argv[1]
+    config_path = sys.argv[2]
 
+    # Ensure the output directory exists (or can be created)
+    if not os.path.exists(assets_output_dir):
+        try:
+            os.makedirs(assets_output_dir)
+        except OSError as e:
+            print(f'Failed to create output directory {assets_output_dir}: {e}')
+            sys.exit(1)
+
+    # Try to load the launcher config
     try:
         with open(config_path, 'r') as f:
             config = json.load(f)
@@ -44,22 +51,28 @@ def main():
         print('Invalid configuration in launcher-config.json')
         sys.exit(1)
 
+    # Download each asset if not already present
     for asset in assets:
         dest_path = os.path.join(assets_output_dir, asset)
+        # Create any subdirectories for this asset
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
         if not os.path.exists(dest_path):
-            print(f'Downloading {asset} from {base_url.rstrip("/")}/{asset}...')
             url = base_url.rstrip('/') + '/' + asset
+            print(f'Downloading {asset} from {url}...')
             try:
                 download_asset(url, dest_path)
             except Exception as e:
+                print(f'First attempt failed: {e}')
+                # If the first attempt fails, try again with '/en/' appended to the base URL
+                url = base_url.rstrip('/') + '/en/' + asset
+                print(f'Trying again from {url}...')
                 try:
-                    # If the first attempt fails, try again with '/en/' appended to the base URL.
-                    url = base_url.rstrip('/') + '/en/' + asset
-                    print(f'Trying again from {url}...')
                     download_asset(url, dest_path)
                 except Exception as inner_e:
                     print(f'Failed to download {url}: {inner_e}')
                     sys.exit(1)
+
     print('All launcher assets are up-to-date.')
 
 if __name__ == '__main__':

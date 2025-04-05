@@ -51,7 +51,7 @@ set(FETCH_ASSETS_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/fetch_launcher_assets.py")
 set(ASSETS_STAMP "${GTK_ASSETS_OUTPUT_DIR}/.assets_downloaded")
 add_custom_command(
         OUTPUT ${ASSETS_STAMP}
-        COMMAND ${Python3_EXECUTABLE} ${FETCH_ASSETS_SCRIPT} ${GTK_ASSETS_DIR} ${GTK_ASSETS_OUTPUT_DIR}
+        COMMAND ${Python3_EXECUTABLE} ${FETCH_ASSETS_SCRIPT} ${GTK_ASSETS_OUTPUT_DIR} ${CONFIG_FILE_PATH}
         COMMAND ${CMAKE_COMMAND} -E touch ${ASSETS_STAMP}
         DEPENDS ${CONFIG_FILE_PATH}
         COMMENT "Fetching launcher assets using launcher-config.json..."

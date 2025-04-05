@@ -4,6 +4,7 @@ project(stub_launcher_project C)
 
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_EXECUTABLE_SUFFIX ".exe")
+set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
 
 message(STATUS "Configuring stub launcher (will be built with winegcc).")
 

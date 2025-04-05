@@ -68,6 +68,7 @@ add_custom_command(
         COMMAND glib-compile-resources
         --generate-source
         --sourcedir=${GTK_ASSETS_DIR}
+        --sourcedir=${GTK_ASSETS_OUTPUT_DIR}
         --target=${GRESOURCE_C}
         ${GRESOURCE_XML}
         DEPENDS fetch_launcher_assets  # e.g. ensure assets are downloaded

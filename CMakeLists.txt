@@ -8,6 +8,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
 set(CUSTOM_CONFIG_PATH "default" CACHE STRING "Path to a custom launcher-config.json if desired")
+set(WINE_WINDOWS_INCLUDE_DIR "default" CACHE STRING "Path to WINE development headers if at non standard path.")
 
 # --------------------------------------------------------------------------
 # Build the utils subproject (with preferred native toolchain)
@@ -35,6 +36,7 @@ ExternalProject_Add(stub_launcher_ex
         -DCMAKE_C_COMPILER=winegcc
         -DTERAUTILS_LIB=$<TARGET_FILE:terautils>
         -DTERAUTILS_INCLUDE_DIR=${CMAKE_SOURCE_DIR}/utils
+        -DWINE_WINDOWS_INCLUDE_DIR=${WINE_WINDOWS_INCLUDE_DIR}
         INSTALL_COMMAND    ${CMAKE_COMMAND} --build . --target install
 )
 

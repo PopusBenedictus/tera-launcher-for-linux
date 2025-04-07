@@ -531,7 +531,7 @@ GtkWidget *create_options_dialog(LauncherData *ld,
   g_object_set_data(G_OBJECT(dialog), "gamemode-toggle", gamemode_toggle);
 
   GtkWidget *gamescope_toggle = gtk_check_button_new_with_label(
-      "Use Gamescope (only selectable if installed)");
+      "Use Gamescope (only selectable if installed, UNSTABLE)");
   GtkWidget *gamescope_args_label = gtk_label_new("Gamescope Arguments:");
   GtkWidget *gamescope_entry = gtk_entry_new();
   gtk_grid_attach(GTK_GRID(grid), gamescope_toggle, 0, 3, 3, 1);

@@ -19,18 +19,26 @@ typedef struct {
   void (*update_callback)(LauncherData *ld, bool do_repair);
 } RepairCallbackData;
 
-/**
- * @brief Validate a wineprefix name.
- *
- * Checks that the wineprefix name is non-empty and does not contain '/' or '\'
- * characters.
- *
- * @param name The wineprefix name to validate.
- * @return true if the name is valid, false otherwise.
- */
+char *make_absolute_wineprefix(const char *path) {
+  if (!path || *path == '\0')
+    return g_strdup(""); /* never return NULL */
+
+  if (g_path_is_absolute(path))
+    return g_strdup(path);
+
+  /* Relative –– prepend the user’s home directory. */
+  return g_build_filename(g_get_home_dir(), path, NULL);
+}
+
 bool validate_wineprefix_name(const char *name) {
   if (!name || *name == '\0')
     return false;
+
+  /* Absolute paths are accepted verbatim. */
+  if (g_path_is_absolute(name))
+    return true;
+
+  /* Otherwise it must be a simple directory name. */
   return strpbrk(name, "/\\") == nullptr;
 }
 
@@ -337,13 +345,15 @@ static void handle_ok_response(GtkDialog *dialog) {
     return;
   }
 
+  char *abs_prefix = make_absolute_wineprefix(wineprefix);
   size_t required;
   bool success = str_copy_formatted(wineprefix_global, &required,
-                                    FIXED_STRING_FIELD_SZ, "%s", wineprefix);
+                                    FIXED_STRING_FIELD_SZ, "%s", abs_prefix);
   if (!success) {
     show_error_dialog(GTK_WINDOW(dialog),
                       "Invalid wineprefix specified, changes will be ignored.");
   }
+  g_free(abs_prefix);
 
   success = str_copy_formatted(wine_base_dir_global, &required,
                                FIXED_STRING_FIELD_SZ, "%s", winebase);
@@ -648,7 +658,22 @@ void config_read_from_ini(void) {
     }                                                                          \
   } while (0)
 
-  READ_STRING_KEY("wineprefix", wineprefix_global);
+  /* Special‑case wineprefix so it is always stored absolute. */
+  {
+    char *value =
+        g_key_file_get_string(keyfile, "Settings", "wineprefix", nullptr);
+    if (value) {
+      char *abs_prefix = make_absolute_wineprefix(value);
+      size_t needed;
+      if (!str_copy_formatted(wineprefix_global, &needed, FIXED_STRING_FIELD_SZ,
+                              "%s", abs_prefix)) {
+        g_warning("Unable to load config value 'wineprefix': too big.");
+      }
+      g_free(abs_prefix);
+      g_free(value);
+    }
+  }
+
   READ_STRING_KEY("wine_base_dir", wine_base_dir_global);
   READ_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
   READ_STRING_KEY("gamescope_args", gamescope_args_global);

@@ -301,17 +301,9 @@ static void handle_ok_response(GtkDialog *dialog) {
 
   const char *winebase =
       gtk_entry_buffer_get_text(gtk_entry_get_buffer(winebase_entry));
-  if (!validate_wine_dir(winebase)) {
+  if (winebase && strlen(winebase) > 0 && !validate_wine_dir(winebase)) {
     show_error_dialog(GTK_WINDOW(dialog),
                       "Invalid wine base directory specified");
-    return;
-  }
-
-  const char *gamescope_args =
-      gtk_entry_buffer_get_text(gtk_entry_get_buffer(gamescope_entry));
-  if (strlen(gamescope_args) == 0) {
-    show_error_dialog(GTK_WINDOW(dialog),
-                      "Cannot enable gamescope without arguments");
     return;
   }
 
@@ -326,6 +318,14 @@ static void handle_ok_response(GtkDialog *dialog) {
   if (new_gamescope && !check_gamescope_available()) {
     show_error_dialog(GTK_WINDOW(dialog),
                       "Gamescope not found, will not be enabled");
+    return;
+  }
+
+  const char *gamescope_args =
+      gtk_entry_buffer_get_text(gtk_entry_get_buffer(gamescope_entry));
+  if (new_gamescope && strlen(gamescope_args) == 0) {
+    show_error_dialog(GTK_WINDOW(dialog),
+                      "Cannot enable gamescope without arguments");
     return;
   }
 

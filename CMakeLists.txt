@@ -7,6 +7,8 @@ set(COMMON_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${COMMON_RUNTIME_OUTPUT_DIRECTORY})
+set(CUSTOM_CONFIG_PATH "default" CACHE STRING "Path to a custom launcher-config.json if desired")
+set(WINE_WINDOWS_INCLUDE_DIR "default" CACHE STRING "Path to WINE development headers if at non standard path.")
 
 # --------------------------------------------------------------------------
 # Build the utils subproject (with preferred native toolchain)
@@ -34,6 +36,7 @@ ExternalProject_Add(stub_launcher_ex
         -DCMAKE_C_COMPILER=winegcc
         -DTERAUTILS_LIB=$<TARGET_FILE:terautils>
         -DTERAUTILS_INCLUDE_DIR=${CMAKE_SOURCE_DIR}/utils
+        -DWINE_WINDOWS_INCLUDE_DIR=${WINE_WINDOWS_INCLUDE_DIR}
         INSTALL_COMMAND    ${CMAKE_COMMAND} --build . --target install
 )
 
@@ -42,17 +45,15 @@ ExternalProject_Add(stub_launcher_ex
 # Its install prefix is set so that its binaries also end up in COMMON_RUNTIME_OUTPUT_DIRECTORY.
 # --------------------------------------------------------------------------
 ExternalProject_Add(easylzma
-        GIT_REPOSITORY      https://github.com/justkeepquiet/easylzma.git
+        GIT_REPOSITORY      https://github.com/PopusBenedictus/easylzma.git
         GIT_TAG             master
         PREFIX              ${CMAKE_BINARY_DIR}/external/easylzma
         CMAKE_ARGS          -Wno-dev
                             -DCMAKE_INSTALL_PREFIX=${COMMON_RUNTIME_OUTPUT_DIRECTORY}
                             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-                            -DCMAKE_C_STANDARD=99
-                            -DCMAKE_C_FLAGS=-std=gnu99\ -I${CMAKE_BINARY_DIR}/external/easylzma/src/easylzma/src/easylzma\ -I${CMAKE_BINARY_DIR}/external/easylzma/src/easylzma/src/pavlov\ -I${CMAKE_BINARY_DIR}/external/easylzma/src/easylzma/elzma\ -I${CMAKE_BINARY_DIR}/external/easylzma/src/easylzma/test
         BUILD_ALWAYS        1
         UPDATE_DISCONNECTED 1
         INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_directory
-                          ${CMAKE_BINARY_DIR}/external/easylzma/src/easylzma-build/easylzma-0.0.8/bin
+                          ${CMAKE_BINARY_DIR}/external/easylzma/src/easylzma-build/easylzma-0.0.9/bin
                           ${COMMON_RUNTIME_OUTPUT_DIRECTORY}
 )

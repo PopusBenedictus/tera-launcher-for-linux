@@ -1313,8 +1313,7 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
     g_free(wine_bin_path);
     g_free(loader);
     g_free(server);
-  } else /* ── fall back to system Wine ──────────────────────────── */
-  {
+  } else {
     resolved_wine = g_find_program_in_path("wine");
     if (!resolved_wine) {
       g_warning("System Wine not found on PATH");
@@ -1328,11 +1327,9 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
   else
     g_free(resolved_wine);
 
-  /* ── 2. Quiet, please ──────────────────────────────────────────────── */
   envp = g_environ_setenv(envp, "WINEDEBUG", "-all", true);
   envp = g_environ_setenv(envp, "DXVK_LOG_LEVEL", "none", true);
 
-  /* ── 3. Optional gamescope + NVIDIA fix ────────────────────────────── */
   if (enable_wsi_fix) {
     FILE *mods = fopen("/proc/modules", "r");
     if (mods) {
@@ -1348,7 +1345,6 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
     }
   }
 
-  /* ── 4. WINEPREFIX ─────────────────────────────────────────────────── */
   if (wineprefix_path && *wineprefix_path)
     envp = g_environ_setenv(envp, "WINEPREFIX", wineprefix_path, true);
 
@@ -1369,6 +1365,8 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
  *                          Ignored unless `use_gamescope` is `true`.
  * @param extra_win_args    NULL‑terminated array of additional arguments to
  *                          pass directly to the Windows program (may be NULL).
+ * @param wine_launcher_path Optional wine launcher path. Only needed for
+ * executables that are not winelib applications.
  *
  * @return Newly‑allocated, NULL‑terminated argument vector.  The caller must
  *         free it with `g_strfreev()`.
@@ -1377,7 +1375,8 @@ static gchar **build_launch_argv(const gchar *exe_path,
                                  const bool use_gamemoderun,
                                  const bool use_gamescope,
                                  const gchar *gamescope_args,
-                                 const gchar *const extra_win_args[]) {
+                                 const gchar *const extra_win_args[],
+                                 const gchar *wine_launcher_path) {
   GPtrArray *argv = g_ptr_array_new();
 
   if (use_gamemoderun) {
@@ -1400,6 +1399,10 @@ static gchar **build_launch_argv(const gchar *exe_path,
     g_ptr_array_add(argv, g_strdup("--"));
   }
 
+  /* We need wine launcher path when not launching the stub launcher */
+  if (wine_launcher_path)
+    g_ptr_array_add(argv, g_strdup(wine_launcher_path));
+
   /* The Windows program itself */
   g_ptr_array_add(argv, g_strdup(exe_path));
 
@@ -1410,6 +1413,50 @@ static gchar **build_launch_argv(const gchar *exe_path,
 
   g_ptr_array_add(argv, nullptr); /* g_spawn_*() terminator */
   return (gchar **)g_ptr_array_free(argv, false);
+}
+
+/**
+ * @brief Launch a Windows program under Wine in the background.
+ *
+ * @param exe_path           Path to the *.exe* you want to run.
+ * @param extra_win_args     NULL‑terminated list of arguments for the *.exe*
+ *                           (may be `NULL`).
+ * @param working_dir        Working directory for the child or `NULL`
+ *                           (defaults to current directory).
+ */
+static void launch_windows_program_async(const gchar *exe_path,
+                                         const gchar *const extra_win_args[],
+                                         const gchar *working_dir) {
+  gchar *wine_bin = nullptr;
+  gchar **envp = build_wine_environment(wine_base_dir_global, wineprefix_global,
+                                        use_gamescope, &wine_bin);
+  if (!envp)
+    return;
+
+  gchar **argv =
+      build_launch_argv(exe_path, use_gamemoderun, false, gamescope_args_global,
+                        extra_win_args, wine_bin);
+  GPid child_pid = 0;
+  GError *err = nullptr;
+
+  const gboolean ok =
+      g_spawn_async(working_dir, argv, envp, G_SPAWN_DO_NOT_REAP_CHILD, nullptr,
+                    nullptr, &child_pid, &err);
+
+  if (!ok) {
+    g_warning("Failed to launch %s: %s", exe_path, err->message);
+    g_error_free(err);
+    g_strfreev(argv);
+    g_strfreev(envp);
+    g_free(wine_bin);
+    return;
+  }
+
+  g_child_watch_add(child_pid, (GChildWatchFunc)g_spawn_close_pid, nullptr);
+
+  g_strfreev(argv);
+  g_strfreev(envp);
+  g_free(wine_bin);
 }
 
 /**
@@ -1479,7 +1526,7 @@ static gpointer game_launcher_thread(gpointer data) {
 
   gchar **argv_final =
       build_launch_argv(stub_path, use_gamemoderun, use_gamescope,
-                        gamescope_args_global, win_args);
+                        gamescope_args_global, win_args, nullptr);
 
   GError *err = nullptr;
   gint status = 0;
@@ -1791,6 +1838,20 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
   // Write loaded configuration (and any changes applied above).
   config_write_to_ini();
+
+  char toolbox_exe[FIXED_STRING_FIELD_SZ];
+  size_t needed_size = 0;
+
+  const bool ok =
+      str_copy_formatted(toolbox_exe, &needed_size, sizeof toolbox_exe,
+                         "%s/TeraToolbox.exe", tera_toolbox_path_global);
+
+  if (!ok) {
+    g_warning("Failed to build Toolbox path (need %zu bytes)", needed_size);
+    return;
+  }
+
+  launch_windows_program_async(toolbox_exe, nullptr, tera_toolbox_path_global);
 
   GError *error = nullptr;
   style_data_gbytes =

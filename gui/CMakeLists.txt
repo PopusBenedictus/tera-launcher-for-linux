@@ -5,8 +5,17 @@ set(CMAKE_C_STANDARD 23)
 
 # Directories for GTK assets and resource generation
 set(GTK_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gtk-assets")
+set(GTK_ASSETS_OUTPUT_DIR "${CMAKE_BINARY_DIR}/gtk-assets")
 set(GRESOURCE_XML "${GTK_ASSETS_DIR}/mylauncher.gresource.xml")
 set(GRESOURCE_C "${CMAKE_BINARY_DIR}/generated/mylauncher.gresource.c")
+if(CUSTOM_CONFIG_PATH STREQUAL "default")
+    set(CONFIG_FILE_PATH "${GTK_ASSETS_DIR}/launcher-config.json")
+else()
+    if(NOT EXISTS "${CUSTOM_CONFIG_PATH}" OR IS_DIRECTORY "${CUSTOM_CONFIG_PATH}")
+        message(FATAL_ERROR "Provided custom config file path is invalid: '${CUSTOM_CONFIG_PATH}'.")
+    endif()
+    set(CONFIG_FILE_PATH "${CUSTOM_CONFIG_PATH}")
+endif()
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 
@@ -39,12 +48,12 @@ set(FETCH_ASSETS_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/fetch_launcher_assets.py")
 # Step 2: Add a custom command to fetch the assets.
 # A stamp file (.assets_downloaded) will be created in the gtk-assets directory when successful.
 #############################################
-set(ASSETS_STAMP "${GTK_ASSETS_DIR}/.assets_downloaded")
+set(ASSETS_STAMP "${GTK_ASSETS_OUTPUT_DIR}/.assets_downloaded")
 add_custom_command(
         OUTPUT ${ASSETS_STAMP}
-        COMMAND ${Python3_EXECUTABLE} ${FETCH_ASSETS_SCRIPT} ${GTK_ASSETS_DIR}
+        COMMAND ${Python3_EXECUTABLE} ${FETCH_ASSETS_SCRIPT} ${GTK_ASSETS_OUTPUT_DIR} ${CONFIG_FILE_PATH}
         COMMAND ${CMAKE_COMMAND} -E touch ${ASSETS_STAMP}
-        DEPENDS ${GTK_ASSETS_DIR}/launcher-config.json
+        DEPENDS ${CONFIG_FILE_PATH}
         COMMENT "Fetching launcher assets using launcher-config.json..."
 )
 add_custom_target(fetch_launcher_assets
@@ -59,6 +68,7 @@ add_custom_command(
         COMMAND glib-compile-resources
         --generate-source
         --sourcedir=${GTK_ASSETS_DIR}
+        --sourcedir=${GTK_ASSETS_OUTPUT_DIR}
         --target=${GRESOURCE_C}
         ${GRESOURCE_XML}
         DEPENDS fetch_launcher_assets  # e.g. ensure assets are downloaded
@@ -73,6 +83,7 @@ add_custom_target(gtk_build_resources DEPENDS ${GRESOURCE_C})
 #############################################
 add_executable(tera_launcher_for_linux
         ${CMAKE_CURRENT_SOURCE_DIR}/main.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/options_dialog.c
         ${CMAKE_CURRENT_SOURCE_DIR}/updater.c
         ${GRESOURCE_C}  # the generated file
 )

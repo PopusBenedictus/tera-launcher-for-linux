@@ -300,40 +300,38 @@ static void handle_ok_response(GtkDialog *dialog) {
   const auto toolbox_entry =
       GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), "toolbox-entry"));
 
+  GtkWindow *parent = gtk_window_get_transient_for(GTK_WINDOW(dialog));
+
   const char *wineprefix =
       gtk_entry_buffer_get_text(gtk_entry_get_buffer(wineprefix_entry));
   if (!validate_wineprefix_name(wineprefix)) {
-    show_error_dialog(GTK_WINDOW(dialog), "Invalid wineprefix specified");
+    show_error_dialog(parent, "Invalid wineprefix specified");
     return;
   }
 
   const char *winebase =
       gtk_entry_buffer_get_text(gtk_entry_get_buffer(winebase_entry));
   if (winebase && strlen(winebase) > 0 && !validate_wine_dir(winebase)) {
-    show_error_dialog(GTK_WINDOW(dialog),
-                      "Invalid wine base directory specified");
+    show_error_dialog(parent, "Invalid wine base directory specified");
     return;
   }
 
   const bool new_gamemode = gtk_check_button_get_active(gamemode_toggle);
   if (new_gamemode && !check_gamemode_available()) {
-    show_error_dialog(GTK_WINDOW(dialog),
-                      "Gamemode not found, will not be enabled");
+    show_error_dialog(parent, "Gamemode not found, will not be enabled");
     return;
   }
 
   const bool new_gamescope = gtk_check_button_get_active(gamescope_toggle);
   if (new_gamescope && !check_gamescope_available()) {
-    show_error_dialog(GTK_WINDOW(dialog),
-                      "Gamescope not found, will not be enabled");
+    show_error_dialog(parent, "Gamescope not found, will not be enabled");
     return;
   }
 
   const char *gamescope_args =
       gtk_entry_buffer_get_text(gtk_entry_get_buffer(gamescope_entry));
   if (new_gamescope && strlen(gamescope_args) == 0) {
-    show_error_dialog(GTK_WINDOW(dialog),
-                      "Cannot enable gamescope without arguments");
+    show_error_dialog(parent, "Cannot enable gamescope without arguments");
     return;
   }
 
@@ -341,7 +339,7 @@ static void handle_ok_response(GtkDialog *dialog) {
   const char *toolbox_path =
       gtk_entry_buffer_get_text(gtk_entry_get_buffer(toolbox_entry));
   if (new_toolbox && !validate_toolbox_path(toolbox_path)) {
-    show_error_dialog(GTK_WINDOW(dialog), "Invalid TERA Toolbox path");
+    show_error_dialog(parent, "Invalid TERA Toolbox path");
     return;
   }
 
@@ -350,7 +348,7 @@ static void handle_ok_response(GtkDialog *dialog) {
   bool success = str_copy_formatted(wineprefix_global, &required,
                                     FIXED_STRING_FIELD_SZ, "%s", abs_prefix);
   if (!success) {
-    show_error_dialog(GTK_WINDOW(dialog),
+    show_error_dialog(parent,
                       "Invalid wineprefix specified, changes will be ignored.");
   }
   g_free(abs_prefix);
@@ -359,14 +357,14 @@ static void handle_ok_response(GtkDialog *dialog) {
                                FIXED_STRING_FIELD_SZ, "%s", winebase);
   if (!success) {
     show_error_dialog(
-        GTK_WINDOW(dialog),
+        parent,
         "Invalid wine base directory specified, changes will be ignored.");
   }
 
   success = str_copy_formatted(gamescope_args_global, &required,
                                FIXED_STRING_FIELD_SZ, "%s", gamescope_args);
   if (!success) {
-    show_error_dialog(GTK_WINDOW(dialog),
+    show_error_dialog(parent,
                       "Gamescope arguments too large for buffer or invalid, "
                       "changes will be ignored.");
   }
@@ -380,7 +378,7 @@ static void handle_ok_response(GtkDialog *dialog) {
                                  FIXED_STRING_FIELD_SZ, "%s", toolbox_path);
     if (!success) {
       show_error_dialog(
-          GTK_WINDOW(dialog),
+          parent,
           "Invalid TERA Toolbox directory specified, changes will be ignored.");
     }
   } else {

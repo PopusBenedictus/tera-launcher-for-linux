@@ -128,30 +128,42 @@ Before building, you **must** populate all values in the `launcher-config.json` 
 
 2. **Configure** your `launcher-config.json` accordingly. For example:
    ```json
-   {
-     "auth_url": "https://some.url/LauncherLoginAction",
-     "public_patch_url": "https://some.url/public/patch",
-     "public_launcher_assets_url": "https://some.url/public/launcher/images",
-     "wine_prefix_name": ".prefix_folder_name_here",
-     "game_lang": "EUR",
-     "public_launcher_assets": [
-       "bg.jpg",
-       "bg.png",
-       "btn-auth.png",
-       "btn-close.png",
-       "..."
-     ],
-     "service_name": "Your TERA Server"
-   }
+    {
+      "auth_url": "https://some.url/LauncherLoginAction",
+      "public_patch_url": "https://some.url/public/patch",
+      "public_launcher_assets_url": "https://some.url/public/launcher/images",
+      "server_list_url": "https://some.url/ServerList?lang=en",
+      "wine_prefix_name": ".prefix_folder_name_here",
+      "game_lang": "EUR",
+      "public_launcher_assets": [
+        "bg.jpg",
+        "bg.png",
+        "btn-auth.png",
+        "btn-close.png",
+        "btn-close1.png",
+        "btn-game-start.png",
+        "btn-logout.png",
+        "form.png",
+        "ico.png",
+        "logo.png",
+        "repair-btn.png"
+      ],
+      "service_name": "Your TERA Server"
+    }
    ```
 
    Please note that `wine_prefix_name` _must_ be the name of a folder and may not contain any path separators. It will be created in the home folder of the user like the system `.wine` wineprefix typically would be.
+   You can use the `CUSTOM_CONFIG_PATH` parameter if you are trying to build multiple versions of the launcher for different TERA servers, which can help isolate setting changes between different launcher builds. That is explained below.
 
 3. **Create a build directory** and run CMake:
    ```bash
    mkdir build
    cd build
    cmake ..
+   ```
+   If using a custom configuration path, the last command should be:
+   ```bash
+   cmake .. -DCUSTOM_CONFIG_PATH="/path/to/custom/launcher-config.json"
    ```
    By default, CMake will detect your system’s native toolchain. The subproject that builds the stub uses `winegcc` automatically.
 

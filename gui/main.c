@@ -5,8 +5,8 @@
  * http://www.wtfpl.net/ for more details.
  */
 
+#include "shared_struct_defs.h"
 #include "updater.h"
-#include "util.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>
 #include <glib.h>
@@ -14,6 +14,8 @@
 #include <jansson.h>
 #include <stdlib.h>
 #include <unistd.h>
+
+#include "options_dialog.h"
 
 /**
  * @brief The alert types available for the generic alert dialog used by this
@@ -24,64 +26,6 @@ typedef enum {
   ALERT_MSG_WARNING,
   ALERT_MSG_ERROR
 } AlertMessageType;
-
-/**
- * @brief Used to capture auth info when a user logs into the TERA server. TODO:
- * implement bounds checks here because we could easily exceed these limits and
- * cause a crash.
- */
-typedef struct {
-  char user_no[FIXED_STRING_FIELD_SZ];
-  char auth_key[FIXED_STRING_FIELD_SZ];
-  char character_count[FIXED_STRING_FIELD_SZ];
-  char welcome_label_msg[FIXED_STRING_FIELD_SZ];
-} LoginData;
-
-/**
- * @brief Used to help with the manual window dragging callback and storing the
- * state thereof.
- */
-typedef struct {
-  gboolean dragging;
-} DragData;
-
-/**
- * @brief Used to store all the GUI widgets and possibly some state relating to
- * window moves and other things.
- */
-typedef struct {
-  GtkWidget *window;
-  GtkWidget *base_overlay;
-
-  // Login pane
-  GtkWidget *login_overlay;
-  GtkWindowHandle *login_window_handle;
-  GtkWidget *user_entry;
-  GtkWidget *pass_entry;
-  GtkWidget *login_btn;
-  GtkWidget *close_login_btn;
-
-  // Patch/Play pane
-  GtkWidget *patch_overlay;
-  GtkWindowHandle *patch_window_handle;
-  GtkWidget *welcome_label;
-  GtkWidget *welcome_label_hbox;
-  GtkWidget *footer_label;
-  GtkWidget *play_btn;
-  GtkWidget *logout_btn;
-  GtkWidget *repair_btn;
-  GtkWidget *close_patch_btn;
-  GtkWidget *update_repair_progress_bar;
-  GtkWidget *update_repair_download_bar;
-
-  // Data from do_login
-  LoginData login_data;
-
-  // Gesture controllers
-  GtkEventController *login_controller;
-  GtkEventController *patch_controller;
-  DragData drag_data;
-} LauncherData;
 
 /**
  * @brief Structure to hold data for launching the game.
@@ -124,35 +68,77 @@ struct CurlResponse {
 };
 
 /**
- * @brief Game language string from the embedded sjon resource.
+ * @brief Game language string from the embedded json resource.
  */
-static char game_lang_global[FIXED_STRING_FIELD_SZ] = {0};
+char game_lang_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Wineprefix folder name from the embedded json resource.
  */
-static char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Wineprefix folder name from the embedded json resource (default
+ * value).
+ */
+char wineprefix_default_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief If specified by the user, a path to a custom build of wine. Unset by
+ * default.
+ */
+char wine_base_dir_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the patch url root.
  */
-static char patch_url_global[FIXED_STRING_FIELD_SZ] = {0};
+char patch_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the auth url root.
  */
-static char auth_url_global[FIXED_STRING_FIELD_SZ] = {0};
+char auth_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the server list url.
  */
-static char server_list_url_global[FIXED_STRING_FIELD_SZ] = {0};
+char server_list_url_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the service name that is displayed in the patch window
  * footer.
  */
-static char service_name_global[FIXED_STRING_FIELD_SZ] = {0};
+char service_name_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Holds a copy of the path to TERA Toolbox. Entirely user specified and
+ * therefore assumed not available by default.
+ */
+char tera_toolbox_path_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief User specified args string for Gamescope. These are required if the
+ * user chooses to enable Gamescope by setting use_gamescope to TRUE.
+ */
+char gamescope_args_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief If set to TRUE, attempt to launch TERA Online using Feral Game Mode.
+ * Turned off by default.
+ */
+bool use_gamemoderun = false;
+
+/**
+ * @brief If set to TRUE, attempt to use Steam Gamescope compositor for HDR
+ * support. Turned off by default.
+ */
+bool use_gamescope = false;
+
+/**
+ * @brief If set to TRUE, attempt to launch TERA Toolbox before launching the
+ * game itself. Turned off by default.
+ */
+bool use_tera_toolbox = false;
 
 /**
  * @brief Used to store the final update thread message, if any, to update
@@ -736,23 +722,23 @@ static GtkWidget *create_patch_overlay(LauncherData *ld) {
   // Repair Button
   GdkTexture *rep_tex =
       load_subimage("/com/tera/launcher/repair-btn.png", 0, 0, 50, 50);
-  ld->repair_btn = gtk_button_new();
+  ld->option_menu_btn = gtk_button_new();
   if (rep_tex) {
     GtkWidget *pic = gtk_picture_new_for_paintable(GDK_PAINTABLE(rep_tex));
     gtk_picture_set_content_fit(GTK_PICTURE(pic), GTK_CONTENT_FIT_FILL);
-    gtk_button_set_child(GTK_BUTTON(ld->repair_btn), pic);
-    gtk_widget_add_css_class(ld->repair_btn, "img_button_icons");
+    gtk_button_set_child(GTK_BUTTON(ld->option_menu_btn), pic);
+    gtk_widget_add_css_class(ld->option_menu_btn, "img_button_icons");
     g_object_unref(rep_tex);
   } else {
-    gtk_button_set_label(GTK_BUTTON(ld->repair_btn), "Repair");
+    gtk_button_set_label(GTK_BUTTON(ld->option_menu_btn), "Repair");
   }
-  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->repair_btn);
-  gtk_widget_set_size_request(ld->repair_btn, 50, 50);
-  gtk_widget_set_halign(ld->repair_btn, GTK_ALIGN_START);
-  gtk_widget_set_valign(ld->repair_btn, GTK_ALIGN_START);
-  gtk_widget_set_margin_start(ld->repair_btn, 515);
-  gtk_widget_set_margin_top(ld->repair_btn, 468);
-  gtk_widget_add_css_class(ld->repair_btn, "img_buttons");
+  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->option_menu_btn);
+  gtk_widget_set_size_request(ld->option_menu_btn, 50, 50);
+  gtk_widget_set_halign(ld->option_menu_btn, GTK_ALIGN_START);
+  gtk_widget_set_valign(ld->option_menu_btn, GTK_ALIGN_START);
+  gtk_widget_set_margin_start(ld->option_menu_btn, 515);
+  gtk_widget_set_margin_top(ld->option_menu_btn, 468);
+  gtk_widget_add_css_class(ld->option_menu_btn, "img_buttons");
 
   // Close Button
   GdkTexture *close_patch_tex =
@@ -929,43 +915,48 @@ static void parse_and_copy_string(GtkApplication *app,
  * @brief Load and validate the launcher's configuration from embedded JSON.
  *
  * Reads JSON from /com/tera/launcher/launcher-config.json, populates the global
- * config variables, and checks them for correctness. On failure, it shows an
- * error dialog (via @p app) and quits the application.
+ * config variables, and checks them for correctness.  The wine_prefix_name key
+ * is normalised so it is **always stored as an absolute path**.
  *
- * @param app The GtkApplication instance used for showing fatal error dialogs.
- * @return gboolean TRUE on success (the function returns normally). In the
- * event of an error, a dialog is shown and the app quits, so effectively this
- * function only returns FALSE if something interrupts the flow before the
- * dialog.
+ * On any failure a modal error dialog is shown (via @p app) and the
+ * application terminates.
  */
 static gboolean launcher_init_config(GtkApplication *app) {
   json_t *launcher_config_json =
       load_launcher_config_json(app, "/com/tera/launcher/launcher-config.json");
-  if (!launcher_config_json) {
-    return FALSE;
-  }
+  if (!launcher_config_json)
+    return false;
 
   parse_and_copy_string(app, launcher_config_json, "public_patch_url",
                         patch_url_global);
   parse_and_copy_string(app, launcher_config_json, "auth_url", auth_url_global);
   parse_and_copy_string(app, launcher_config_json, "server_list_url",
                         server_list_url_global);
-  parse_and_copy_string(app, launcher_config_json, "wine_prefix_name",
-                        wineprefix_global);
 
-  const char *p = wineprefix_global;
-  while (*p) {
-    if (*p == '/' || *p == '\\') {
-      const char *error_msg =
-          "Wine prefix contains path separators, which is not valid.";
-      show_alert_dialog(
-          gtk_application_get_active_window(app), "Configuration Error",
-          "Wine prefix contains path separators, which is not valid.",
-          ALERT_MSG_ERROR);
-      g_error("%s", error_msg);
-    }
-    p++;
+  char tmp_prefix[FIXED_STRING_FIELD_SZ] = {0};
+  parse_and_copy_string(app, launcher_config_json, "wine_prefix_name",
+                        tmp_prefix);
+
+  char *abs_prefix = make_absolute_wineprefix(tmp_prefix);
+  if (!g_path_is_absolute(abs_prefix) || abs_prefix[0] == '\0') {
+    show_alert_dialog(gtk_application_get_active_window(app),
+                      "Configuration Error",
+                      "Unable to resolve wine_prefix_name to an absolute path.",
+                      ALERT_MSG_ERROR);
+    g_error("wine_prefix_name invalid");
   }
+
+  size_t needed;
+  if (!str_copy_formatted(wineprefix_global, &needed, FIXED_STRING_FIELD_SZ,
+                          "%s", abs_prefix) ||
+      !str_copy_formatted(wineprefix_default_global, &needed,
+                          FIXED_STRING_FIELD_SZ, "%s", abs_prefix)) {
+    show_alert_dialog(
+        gtk_application_get_active_window(app), "Configuration Error",
+        "Wine prefix path is too long for internal buffer.", ALERT_MSG_ERROR);
+    g_error("wine_prefix_name exceeds buffer");
+  }
+  g_free(abs_prefix);
 
   parse_and_copy_string(app, launcher_config_json, "game_lang",
                         game_lang_global);
@@ -973,7 +964,7 @@ static gboolean launcher_init_config(GtkApplication *app) {
                         service_name_global);
 
   json_decref(launcher_config_json);
-  return TRUE;
+  return true;
 }
 
 /**
@@ -1027,7 +1018,7 @@ static gboolean progress_bar_final_callback(gpointer data) {
 static gboolean button_status_callback(gpointer data) {
   const UpdateThreadData *td = data;
   gtk_widget_set_sensitive(td->ld->play_btn, td->play_button_enabled);
-  gtk_widget_set_sensitive(td->ld->repair_btn, td->repair_button_enabled);
+  gtk_widget_set_sensitive(td->ld->option_menu_btn, td->repair_button_enabled);
   return FALSE;
 }
 
@@ -1131,7 +1122,7 @@ static gpointer update_thread_func(gpointer data) {
  */
 static void start_update_process(LauncherData *ld, bool do_repair) {
   // Disable the repair and play buttons to prevent multiple updates
-  gtk_widget_set_sensitive(ld->repair_btn, FALSE);
+  gtk_widget_set_sensitive(ld->option_menu_btn, FALSE);
   gtk_widget_set_sensitive(ld->play_btn, FALSE);
 
   // Reset the progress bar
@@ -1155,7 +1146,7 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
       gtk_progress_bar_set_text(
           GTK_PROGRESS_BAR(ld->update_repair_progress_bar), "Update failed.");
 
-    gtk_widget_set_sensitive(ld->repair_btn, TRUE);
+    gtk_widget_set_sensitive(ld->option_menu_btn, TRUE);
     gtk_widget_set_sensitive(ld->play_btn, TRUE);
     return;
   }
@@ -1185,7 +1176,7 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
       gtk_progress_bar_set_text(
           GTK_PROGRESS_BAR(ld->update_repair_progress_bar), "Update failed.");
 
-    gtk_widget_set_sensitive(ld->repair_btn, TRUE);
+    gtk_widget_set_sensitive(ld->option_menu_btn, TRUE);
     gtk_widget_set_sensitive(ld->play_btn, TRUE);
     g_free(thread_data->update_data.game_path);
     free(thread_data);
@@ -1208,7 +1199,7 @@ static gboolean restore_launcher_callback(gpointer user_data) {
 
   gtk_widget_set_sensitive(cb_data->ld->window, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->play_btn, TRUE);
-  gtk_widget_set_sensitive(cb_data->ld->repair_btn, TRUE);
+  gtk_widget_set_sensitive(cb_data->ld->option_menu_btn, TRUE);
   gtk_window_present(GTK_WINDOW(cb_data->ld->window));
 
   free(cb_data);
@@ -1239,182 +1230,322 @@ void game_exit_callback(const int exit_code, const void *user_data) {
 }
 
 /**
- * @brief Thread function to launch stub_launcher and capture its exit code.
+ * @brief Build an environment vector suitable for executing Wine.
  *
- * @param data Pointer to GameLaunchData.
- * @return NULL.
+ * The function:
+ *   - Detects whether a *custom* Wine directory was requested and, if so,
+ *     verifies that the binaries inside it are executable.
+ *   - Pushes the Wine `bin/` directory to the front of **PATH** so that the
+ *     kernel’s binfmt handler (or any explicit `wine` invocation) will pick
+ *     it up first.
+ *   - Sets **LD_LIBRARY_PATH**, **WINELOADER**, **WINESERVER** when a custom
+ *     Wine build is used.
+ *   - Always sets **WINEDEBUG=-all** and **DXVK_LOG_LEVEL=none** to keep the
+ *     launcher output quiet.
+ *   - Optionally exports **ENABLE_GAMESCOPE_WSI=0** when an NVIDIA kernel
+ *     module is detected (gamescope workaround).
+ *   - Applies the requested **WINEPREFIX**.
+ *
+ * @param custom_wine_dir   Absolute path to a custom Wine build or `NULL`
+ *                          to fall back to the system Wine on *PATH*.
+ * @param wineprefix_path   Path that should be used for **WINEPREFIX**
+ *                          (may be `NULL` → keep whatever the user already
+ *                          has).
+ * @param enable_wsi_fix    When `true`, detect an NVIDIA module and, if one
+ *                          is present, export `ENABLE_GAMESCOPE_WSI=0`.
+ * @param[out] wine_path    Receives a newly‑allocated copy of the resolved
+ *                          Wine binary location.  May be `NULL` when the
+ *                          caller is not interested in the value.
+ *
+ * @return Newly‑allocated `char **` environment vector.  The caller *must*
+ *         free it with `g_strfreev()`.  On failure `NULL` is returned.
  */
-static gpointer game_launcher_thread(gpointer data) {
-  GameLaunchData *launch_data = data;
-  if (!launch_data) {
-    return nullptr;
-  }
-
-  char cwd[FIXED_STRING_FIELD_SZ];
-  if (!getcwd(cwd, sizeof(cwd))) {
-    g_warning("Failed to get current working directory.");
-    gtk_widget_set_sensitive(GTK_WIDGET(launch_data->ld->play_btn), TRUE);
-    free(launch_data);
-    return nullptr;
-  }
-
-  // Replace '/' with '\\' in cwd.
-  for (int i = 0; cwd[i]; i++) {
-    if (cwd[i] == '/')
-      cwd[i] = '\\';
-  }
-
-  char launcher_path[FIXED_STRING_FIELD_SZ];
-  size_t required;
-  const bool success =
-      str_copy_formatted(launcher_path, &required, FIXED_STRING_FIELD_SZ,
-                         "Z:%s\\Binaries\\TERA.exe", cwd);
-  if (!success) {
-    g_error("Failed to allocate %zu bytes for binary path string in buffer of "
-            "size %zu bytes.",
-            required, FIXED_STRING_FIELD_SZ);
-  }
-
-  const char *account_name = launch_data->ld->login_data.user_no;
-  const char *characters_count =
-      (launch_data->ld->login_data.character_count[0]
-           ? launch_data->ld->login_data.character_count
-           : "0");
-  const char *ticket = launch_data->ld->login_data.auth_key;
-  const char *game_lang = game_lang_global;
-  const char *game_path = launcher_path; // Use the dynamically assembled path
-
-  gchar *current_dir = g_get_current_dir();
-  gchar *stub_launcher_path =
-      g_build_filename(current_dir, "stub_launcher.exe", nullptr);
-  if (!g_file_test(stub_launcher_path, G_FILE_TEST_EXISTS)) {
-    g_message("stub_launcher.exe not found at path: %s", stub_launcher_path);
-    g_free(stub_launcher_path);
-    game_exit_callback(1, launch_data->ld);
-    free(launch_data);
-    g_free(current_dir);
-    return nullptr;
-  }
-
-  GError *error = nullptr;
-  gint exit_status = 0;
-  // Start with a copy of the parent environment.
+static gchar **build_wine_environment(const gchar *custom_wine_dir,
+                                      const gchar *wineprefix_path,
+                                      const bool enable_wsi_fix,
+                                      gchar **wine_path) {
   gchar **envp = g_get_environ();
 
-  const gchar *custom_wine_dir = g_environ_getenv(envp, "TERA_CUSTOM_WINE_DIR");
-  gchar *wine_path = nullptr;
-  const gchar *old_path = g_environ_getenv(envp, "PATH");
+  /* ── 1. Locate the Wine binary ──────────────────────────────────────── */
+  gchar *resolved_wine = nullptr;
 
-  if (custom_wine_dir && *custom_wine_dir != '\0') {
-    // If a custom Wine dir is specified, update the environment accordingly.
-    wine_path = g_build_filename(custom_wine_dir, "bin", "wine", nullptr);
-    if (!g_file_test(wine_path, G_FILE_TEST_IS_EXECUTABLE)) {
-      g_warning("Custom wine not found or not executable: %s", wine_path);
-      g_free(wine_path);
+  if (custom_wine_dir && *custom_wine_dir) {
+    /* <custom>/bin/wine must exist and be executable */
+    resolved_wine = g_build_filename(custom_wine_dir, "bin", "wine", nullptr);
+    if (!g_file_test(resolved_wine, G_FILE_TEST_IS_EXECUTABLE)) {
+      g_warning("Custom Wine build not found or not executable: %s",
+                resolved_wine);
+      g_free(resolved_wine);
       g_strfreev(envp);
-      g_free(stub_launcher_path);
-      g_free(current_dir);
-      return FALSE;
+      return nullptr;
     }
 
-    const gchar *old_ld_library_path =
-        g_environ_getenv(envp, "LD_LIBRARY_PATH");
-    GString *new_ld_library_path = g_string_new("");
-    g_string_append_printf(new_ld_library_path, "%s/lib:%s/lib64",
-                           custom_wine_dir, custom_wine_dir);
-    if (old_ld_library_path && *old_ld_library_path != '\0') {
-      g_string_append_c(new_ld_library_path, ':');
-      g_string_append(new_ld_library_path, old_ld_library_path);
-    }
-    envp = g_environ_setenv(envp, "LD_LIBRARY_PATH", new_ld_library_path->str,
-                            TRUE);
-    g_string_free(new_ld_library_path, TRUE);
-
-    gchar *wine_loader_path =
-        g_build_filename(custom_wine_dir, "bin", "wine", nullptr);
-    envp = g_environ_setenv(envp, "WINELOADER", wine_loader_path, TRUE);
-    g_free(wine_loader_path);
-
-    gchar *wine_server_path =
-        g_build_filename(custom_wine_dir, "bin", "wineserver", nullptr);
-    envp = g_environ_setenv(envp, "WINESERVER", wine_server_path, TRUE);
-    g_free(wine_server_path);
-
-    // Prepend the custom Wine bin directory to PATH.
+    /* Pre‑pend <custom>/bin to PATH */
+    const gchar *old_path = g_environ_getenv(envp, "PATH");
     gchar *wine_bin_path = g_build_filename(custom_wine_dir, "bin", nullptr);
+
     GString *new_path = g_string_new(wine_bin_path);
     g_string_append_c(new_path, G_SEARCHPATH_SEPARATOR);
     g_string_append(new_path,
                     old_path ? old_path : "/usr/local/bin:/usr/bin:/bin");
-    envp = g_environ_setenv(envp, "PATH", new_path->str, TRUE);
+    envp = g_environ_setenv(envp, "PATH", new_path->str, true);
+
+    /* Also fix‑up LD_LIBRARY_PATH so Wine can find its own libs */
+    const gchar *old_ld = g_environ_getenv(envp, "LD_LIBRARY_PATH");
+    GString *new_ld = g_string_new("");
+    g_string_append_printf(new_ld, "%s/lib:%s/lib64", custom_wine_dir,
+                           custom_wine_dir);
+    if (old_ld && *old_ld) {
+      g_string_append_c(new_ld, ':');
+      g_string_append(new_ld, old_ld);
+    }
+    envp = g_environ_setenv(envp, "LD_LIBRARY_PATH", new_ld->str, true);
+
+    /* Tell Wine where its helper binaries live */
+    gchar *loader = g_build_filename(custom_wine_dir, "bin", "wine", nullptr);
+    gchar *server =
+        g_build_filename(custom_wine_dir, "bin", "wineserver", nullptr);
+    envp = g_environ_setenv(envp, "WINELOADER", loader, true);
+    envp = g_environ_setenv(envp, "WINESERVER", server, true);
+
     g_string_free(new_path, TRUE);
+    g_string_free(new_ld, TRUE);
     g_free(wine_bin_path);
+    g_free(loader);
+    g_free(server);
   } else {
-    // No custom Wine directory provided.
-    wine_path = g_find_program_in_path("wine");
-    if (!wine_path) {
-      g_warning(
-          "System Wine not found on PATH, and TERA_CUSTOM_WINE_DIR not set.");
-      g_free(wine_path);
+    resolved_wine = g_find_program_in_path("wine");
+    if (!resolved_wine) {
+      g_warning("System Wine not found on PATH");
       g_strfreev(envp);
-      g_free(stub_launcher_path);
-      g_free(current_dir);
-      return FALSE;
+      return nullptr;
     }
   }
 
-  // Set mandatory environment variables regardless of the Wine method.
-  envp = g_environ_setenv(envp, "WINEDEBUG", "-all", TRUE);
-  envp = g_environ_setenv(envp, "DXVK_LOG_LEVEL", "none", TRUE);
+  if (wine_path)
+    *wine_path = g_steal_pointer(&resolved_wine);
+  else
+    g_free(resolved_wine);
 
-  // Set the Wine prefix if home dir is available. Otherwise the default prefix
-  // will be used.
-  const gchar *home_dir = g_get_home_dir();
-  if (home_dir) {
-    gchar *wine_prefix_path =
-        g_build_filename(home_dir, wineprefix_global, nullptr);
-    envp = g_environ_setenv(envp, "WINEPREFIX", wine_prefix_path, TRUE);
-    g_free(wine_prefix_path);
+  envp = g_environ_setenv(envp, "WINEDEBUG", "-all", true);
+  envp = g_environ_setenv(envp, "DXVK_LOG_LEVEL", "none", true);
+
+  if (enable_wsi_fix) {
+    FILE *mods = fopen("/proc/modules", "r");
+    if (mods) {
+      char line[256];
+      while (fgets(line, sizeof line, mods)) {
+        const char *module = strtok(line, " \t");
+        if (module && g_str_has_prefix(module, "nvidia")) {
+          envp = g_environ_setenv(envp, "ENABLE_GAMESCOPE_WSI", "0", true);
+          break;
+        }
+      }
+      fclose(mods);
+    }
   }
 
-  // Assemble the argument list for stub_launcher.
-  GPtrArray *argv_array = g_ptr_array_new();
-  g_ptr_array_add(argv_array, g_strdup(stub_launcher_path));
-  g_ptr_array_add(argv_array, g_strdup(account_name));
-  g_ptr_array_add(argv_array, g_strdup(characters_count));
-  g_ptr_array_add(argv_array, g_strdup(ticket));
-  g_ptr_array_add(argv_array, g_strdup(game_lang));
-  g_ptr_array_add(argv_array, g_strdup(game_path));
-  g_ptr_array_add(argv_array, g_strdup(server_list_url_global));
-  g_ptr_array_add(argv_array, nullptr);
-  gchar **argv_final = (gchar **)g_ptr_array_free(argv_array, FALSE);
+  if (wineprefix_path && *wineprefix_path)
+    envp = g_environ_setenv(envp, "WINEPREFIX", wineprefix_path, true);
 
-  // Spawn the process with our modified environment.
-  gboolean spawn_success = g_spawn_sync(current_dir,     // working directory
-                                        argv_final,      // argv
-                                        envp,            // modified environment
-                                        G_SPAWN_DEFAULT, // flags
-                                        nullptr,         // child_setup
-                                        nullptr,         // user_data
-                                        nullptr,         // standard output
-                                        nullptr,         // standard error
-                                        &exit_status,    // exit status
-                                        &error);         // error
+  return envp;
+}
 
-  if (!spawn_success) {
-    g_error_free(error);
+/**
+ * @brief Assemble the argument vector for `g_spawn_*()` to launch an `.exe`.
+ *
+ * The layout is:
+ *   [gamemoderun] [gamescope args… --] <exe_path> [extra_win_args…] NULL
+ *
+ * @param exe_path          Absolute or relative path of the Windows program.
+ * @param use_gamemoderun   When `true`, prepend **gamemoderun**.
+ * @param use_gamescope     When `true`, prepend **gamescope** plus
+ *                          `gamescope_args` and a terminating “--”.
+ * @param gamescope_args    Space‑separated string of extra gamescope flags.
+ *                          Ignored unless `use_gamescope` is `true`.
+ * @param extra_win_args    NULL‑terminated array of additional arguments to
+ *                          pass directly to the Windows program (may be NULL).
+ * @param wine_launcher_path Optional wine launcher path. Only needed for
+ * executables that are not winelib applications.
+ *
+ * @return Newly‑allocated, NULL‑terminated argument vector.  The caller must
+ *         free it with `g_strfreev()`.
+ */
+static gchar **build_launch_argv(const gchar *exe_path,
+                                 const bool use_gamemoderun,
+                                 const bool use_gamescope,
+                                 const gchar *gamescope_args,
+                                 const gchar *const extra_win_args[],
+                                 const gchar *wine_launcher_path) {
+  GPtrArray *argv = g_ptr_array_new();
+
+  if (use_gamemoderun) {
+    const gchar *gm = g_find_program_in_path("gamemoderun");
+    g_ptr_array_add(argv, g_strdup(gm));
   }
 
-  g_message("Restore Game Launcher controls after game exit. Exit status: %i",
-            exit_status);
-  game_exit_callback(exit_status, launch_data->ld);
+  if (use_gamescope) {
+    const gchar *gs = g_find_program_in_path("gamescope");
+    g_ptr_array_add(argv, g_strdup(gs));
 
-  // Clean up.
-  g_strfreev(argv_final);
-  g_free(wine_path);
+    if (gamescope_args && *gamescope_args) {
+      gchar **split = g_strsplit(gamescope_args, " ", -1);
+      for (gchar **p = split; p && *p; ++p) {
+        if (**p) /* ignore empty tokens */
+          g_ptr_array_add(argv, g_strdup(*p));
+      }
+      g_strfreev(split);
+    }
+    g_ptr_array_add(argv, g_strdup("--"));
+  }
+
+  /* We need wine launcher path when not launching the stub launcher */
+  if (wine_launcher_path)
+    g_ptr_array_add(argv, g_strdup(wine_launcher_path));
+
+  /* The Windows program itself */
+  g_ptr_array_add(argv, g_strdup(exe_path));
+
+  if (extra_win_args) {
+    for (const gchar *const *p = extra_win_args; *p; ++p)
+      g_ptr_array_add(argv, g_strdup(*p));
+  }
+
+  g_ptr_array_add(argv, nullptr); /* g_spawn_*() terminator */
+  return (gchar **)g_ptr_array_free(argv, false);
+}
+
+/**
+ * @brief Launch a Windows program under Wine in the background.
+ *
+ * @param exe_path           Path to the *.exe* you want to run.
+ * @param extra_win_args     NULL‑terminated list of arguments for the *.exe*
+ *                           (may be `NULL`).
+ * @param working_dir        Working directory for the child or `NULL`
+ *                           (defaults to current directory).
+ */
+static void launch_windows_program_async(const gchar *exe_path,
+                                         const gchar *const extra_win_args[],
+                                         const gchar *working_dir) {
+  gchar *wine_bin = nullptr;
+  gchar **envp = build_wine_environment(wine_base_dir_global, wineprefix_global,
+                                        use_gamescope, &wine_bin);
+  if (!envp)
+    return;
+
+  gchar **argv =
+      build_launch_argv(exe_path, use_gamemoderun, false, gamescope_args_global,
+                        extra_win_args, wine_bin);
+  GPid child_pid = 0;
+  GError *err = nullptr;
+
+  const gboolean ok =
+      g_spawn_async(working_dir, argv, envp, G_SPAWN_DO_NOT_REAP_CHILD, nullptr,
+                    nullptr, &child_pid, &err);
+
+  if (!ok) {
+    g_warning("Failed to launch %s: %s", exe_path, err->message);
+    g_error_free(err);
+    g_strfreev(argv);
+    g_strfreev(envp);
+    g_free(wine_bin);
+    return;
+  }
+
+  g_child_watch_add(child_pid, (GChildWatchFunc)g_spawn_close_pid, nullptr);
+
+  g_strfreev(argv);
   g_strfreev(envp);
-  g_free(stub_launcher_path);
-  g_free(current_dir);
+  g_free(wine_bin);
+}
+
+/**
+ * @brief Thread entry point that starts *stub_launcher.exe* with Wine.
+ *
+ * Most of the heavy lifting has been delegated to
+ * `build_wine_environment()` and `build_launch_argv()` so that the same
+ * approach can be reused to run *any* Windows executable.
+ *
+ * @param data  Pointer to an opaque `GameLaunchData` struct.
+ * @return      Always `NULL`.
+ */
+static gpointer game_launcher_thread(gpointer data) {
+  GameLaunchData *launch_data = data;
+  if (!launch_data)
+    return nullptr;
+
+  char cwd[FIXED_STRING_FIELD_SZ];
+  if (!getcwd(cwd, sizeof cwd)) {
+    g_warning("Failed to getcwd()");
+    gtk_widget_set_sensitive(GTK_WIDGET(launch_data->ld->play_btn), TRUE);
+    free(launch_data);
+    return nullptr;
+  }
+  for (char *p = cwd; *p; ++p)
+    if (*p == '/')
+      *p = '\\';
+
+  char game_path[FIXED_STRING_FIELD_SZ];
+  size_t need;
+  if (!str_copy_formatted(game_path, &need, sizeof game_path,
+                          "Z:%s\\Binaries\\TERA.exe", cwd)) {
+    g_error("Path buffer too small; need %zu bytes", need);
+  }
+
+  gchar *cwd_g = g_get_current_dir();
+  gchar *stub_path = g_build_filename(cwd_g, "stub_launcher.exe", NULL);
+
+  if (!g_file_test(stub_path, G_FILE_TEST_EXISTS)) {
+    g_message("stub_launcher.exe not found: %s", stub_path);
+    game_exit_callback(1, launch_data->ld); /* custom callback */
+    g_free(stub_path);
+    g_free(cwd_g);
+    free(launch_data);
+    return nullptr;
+  }
+
+  gchar *wine_bin = nullptr;
+  gchar **envp = build_wine_environment(wine_base_dir_global, wineprefix_global,
+                                        use_gamescope, &wine_bin);
+  if (!envp) {
+    g_free(stub_path);
+    g_free(cwd_g);
+    free(launch_data);
+    return nullptr;
+  }
+
+  const gchar *win_args[] = {launch_data->ld->login_data.user_no,
+                             launch_data->ld->login_data.character_count[0]
+                                 ? launch_data->ld->login_data.character_count
+                                 : "0",
+                             launch_data->ld->login_data.auth_key,
+                             game_lang_global,
+                             game_path,
+                             server_list_url_global,
+                             nullptr};
+
+  gchar **argv_final =
+      build_launch_argv(stub_path, use_gamemoderun, use_gamescope,
+                        gamescope_args_global, win_args, nullptr);
+
+  GError *err = nullptr;
+  gint status = 0;
+  const gboolean ok =
+      g_spawn_sync(cwd_g, argv_final, envp, G_SPAWN_DEFAULT, nullptr, nullptr,
+                   nullptr, nullptr, &status, &err);
+
+  if (!ok) {
+    g_warning("g_spawn_sync() failed: %s", err->message);
+    g_error_free(err);
+  }
+
+  game_exit_callback(status, launch_data->ld);
+
+  g_strfreev(argv_final);
+  g_strfreev(envp);
+  g_free(wine_bin);
+  g_free(stub_path);
+  g_free(cwd_g);
   free(launch_data);
 
   return nullptr;
@@ -1543,55 +1674,13 @@ static void on_logout_clicked(GtkButton *btn, gpointer user_data) {
 }
 
 /**
- * @brief Handles alert dialog responses
+ * @brief Callback function for handling option menu button clicks.
  */
-static void on_repair_dialog_response(GtkAlertDialog *dialog,
-                                      GAsyncResult *result,
-                                      gpointer user_data) {
-  LauncherData *ld = user_data;
-  GError *error = nullptr;
-
-  // Get response with proper error handling
-  gint response =
-      gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, &error);
-
-  if (error) {
-    g_warning("Dialog error: %s", error->message);
-    g_error_free(error);
-    return;
-  }
-
-  if (response == 1) { // Repair button index
-    g_message("Initiating file repair");
-    start_update_process(ld, TRUE);
-  } else {
-    g_message("Repair canceled");
-  }
-}
-
-/**
- * @brief Callback function for handling repair button clicks.
- */
-static void on_repair_clicked(GtkButton *btn, gpointer user_data) {
+static void on_options_clicked(GtkButton *btn, gpointer user_data) {
   (void)btn; // Unused.
   LauncherData *ld = user_data;
-
-  // Create and configure the alert dialog
-  GtkAlertDialog *dialog =
-      gtk_alert_dialog_new("Are you sure you want to initiate repair?");
-  gtk_alert_dialog_set_detail(
-      dialog,
-      "This will verify and repair game files. It may take a long time.");
-  gtk_alert_dialog_set_buttons(dialog,
-                               (const char *[]){"_Cancel", "_Repair", nullptr});
-
-  // Present the dialog and handle response
-  gtk_alert_dialog_choose(dialog, GTK_WINDOW(ld->window),
-                          nullptr, // No cancellable
-                          (GAsyncReadyCallback)on_repair_dialog_response, ld);
-
-  // Release our reference - dialog manages its own lifetime
-  g_object_unref(dialog);
+  GtkWidget *dialog = create_options_dialog(ld, start_update_process);
+  gtk_window_present(GTK_WINDOW(dialog));
 }
 
 /**
@@ -1711,6 +1800,59 @@ static void activate(GtkApplication *app, gpointer user_data) {
     g_error("Could not initialize launcher from embedded configuration");
   }
 
+  // Load customizations from the user if present.
+  config_read_from_ini();
+
+  if (use_gamemoderun && !check_gamemode_available()) {
+    g_warning("Setting flag to use Game Mode to FALSE -- did not detect on the "
+              "system.");
+    use_gamemoderun = false;
+  }
+
+  if (use_gamescope && !check_gamescope_available()) {
+    g_warning("Setting flag to use Gamescope to FALSE -- did not detect on the "
+              "system.");
+    use_gamescope = false;
+  }
+
+  if (!validate_wineprefix_name(wineprefix_global)) {
+    if (strcmp(wineprefix_global, wineprefix_default_global) == 0) {
+      g_error("Invalid wineprefix, and the global wineprefix value matches "
+              "invalid. Cannot continue.");
+    }
+    g_warning("Using default wineprefix due to invalid wineprefix specified by "
+              "the user.");
+    strcpy(wineprefix_global, wineprefix_default_global);
+  }
+
+  if (use_tera_toolbox) {
+    if (strlen(tera_toolbox_path_global) == 0) {
+      g_warning("Setting TERA Toolbox flag to FALSE -- no path was given from "
+                "configuration.");
+      use_tera_toolbox = false;
+    } else if (!validate_toolbox_path(tera_toolbox_path_global)) {
+      g_warning(
+          "Setting TERA Toolbox flag to FALSE -- invalid path was provided.");
+    }
+  }
+
+  // Write loaded configuration (and any changes applied above).
+  config_write_to_ini();
+
+  char toolbox_exe[FIXED_STRING_FIELD_SZ];
+  size_t needed_size = 0;
+
+  const bool ok =
+      str_copy_formatted(toolbox_exe, &needed_size, sizeof toolbox_exe,
+                         "%s/TeraToolbox.exe", tera_toolbox_path_global);
+
+  if (!ok) {
+    g_warning("Failed to build Toolbox path (need %zu bytes)", needed_size);
+    return;
+  }
+
+  launch_windows_program_async(toolbox_exe, nullptr, tera_toolbox_path_global);
+
   GError *error = nullptr;
   style_data_gbytes =
       g_resources_lookup_data("/com/tera/launcher/styles.css", 0, &error);
@@ -1756,8 +1898,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
   g_signal_connect(ld->play_btn, "clicked", G_CALLBACK(on_play_clicked), ld);
   g_signal_connect(ld->logout_btn, "clicked", G_CALLBACK(on_logout_clicked),
                    ld);
-  g_signal_connect(ld->repair_btn, "clicked", G_CALLBACK(on_repair_clicked),
-                   ld);
+  g_signal_connect(ld->option_menu_btn, "clicked",
+                   G_CALLBACK(on_options_clicked), ld);
   g_signal_connect(ld->close_patch_btn, "clicked",
                    G_CALLBACK(on_close_patch_clicked), ld);
 
@@ -1809,7 +1951,7 @@ int main(const int argc, char **argv) {
   g_signal_connect(app, "activate", G_CALLBACK(activate), &ld);
 
   // Run the application
-  int status = g_application_run(G_APPLICATION(app), argc, argv);
+  const int status = g_application_run(G_APPLICATION(app), argc, argv);
 
   // Clean up
   g_object_unref(app);

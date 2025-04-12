@@ -228,8 +228,8 @@ bool is_game_running(void) { return (GAME_RUNNING != 0); }
 
 bool wstr_copy_from_utf8(wchar_t *buffer, size_t *size_out, size_t size_in,
                          char const *source) {
-  if (buffer == nullptr || size_out == nullptr || source == nullptr) {
-    if (size_out != nullptr) {
+  if (buffer == NULL || size_out == NULL || source == NULL) {
+    if (size_out != NULL) {
       *size_out = 0;
     }
     return false;
@@ -239,7 +239,7 @@ bool wstr_copy_from_utf8(wchar_t *buffer, size_t *size_out, size_t size_in,
   printf("Input string, %s length: %lu", source, strlen(source));
   int needed_wchars = MultiByteToWideChar(CP_UTF8, 0, source,
                                           -1, // process until null terminator
-                                          nullptr, 0);
+                                          NULL, 0);
 
   if (needed_wchars <= 0) {
     *size_out = 0;

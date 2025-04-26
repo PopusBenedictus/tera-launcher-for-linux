@@ -34,14 +34,14 @@ bool validate_prefix_name(const char *name) {
   if (!name || *name == '\0')
     return false;
 
-  /* Absolute paths are accepted verbatim. */
   if (g_path_is_absolute(name))
     return true;
 
-  /* Otherwise it must be a simple directory name. */
-  return strpbrk(name, "/\\") == nullptr;
-}
+  if (strstr(name, ".."))
+    return false;
 
+  return true;
+}
 /**
  * @brief Validate a Wine directory.
  *
@@ -97,7 +97,7 @@ bool validate_toolbox_path(const char *path) {
 }
 
 /**
- * @brief Callback for when a wineprefix directory is selected.
+ * @brief Callback for when a prefix directory is selected.
  *
  * Retrieves the selected file path and sets the entry's text to the basename of
  * the path.
@@ -106,8 +106,8 @@ bool validate_toolbox_path(const char *path) {
  * @param result The asynchronous result.
  * @param user_data Pointer to the GtkEntry widget.
  */
-static void on_wineprefix_selected(GObject *source, GAsyncResult *result,
-                                   gpointer user_data) {
+static void on_prefix_selected(GObject *source, GAsyncResult *result,
+                               gpointer user_data) {
   GtkEntry *entry = GTK_ENTRY(user_data);
   GError *error = nullptr;
   GFile *file = gtk_file_dialog_select_folder_finish(GTK_FILE_DIALOG(source),
@@ -141,8 +141,27 @@ static void on_wineprefix_browse_clicked(GtkButton *button,
   gtk_file_dialog_set_title(dialog, "Select Wineprefix Directory");
   gtk_file_dialog_set_modal(dialog, TRUE);
   gtk_file_dialog_select_folder(dialog, parent, nullptr,
-                                (GAsyncReadyCallback)on_wineprefix_selected,
-                                entry);
+                                (GAsyncReadyCallback)on_prefix_selected, entry);
+}
+
+/**
+ * @brief Callback for the gameprefix browse button.
+ *
+ * Opens a file chooser dialog to select a gameprefix directory.
+ *
+ * @param button The clicked button.
+ * @param user_data Pointer to the parent GtkWindow.
+ */
+static void on_gameprefix_browse_clicked(GtkButton *button,
+                                         gpointer user_data) {
+  const auto parent = GTK_WINDOW(user_data);
+  GtkEntry *entry =
+      GTK_ENTRY(g_object_get_data(G_OBJECT(parent), "gameprefix-entry"));
+  GtkFileDialog *dialog = gtk_file_dialog_new();
+  gtk_file_dialog_set_title(dialog, "Select Game Files Directory");
+  gtk_file_dialog_set_modal(dialog, TRUE);
+  gtk_file_dialog_select_folder(dialog, parent, nullptr,
+                                (GAsyncReadyCallback)on_prefix_selected, entry);
 }
 
 /**
@@ -277,6 +296,31 @@ static void show_error_dialog(GtkWindow *parent, const char *message) {
 }
 
 /**
+ * @brief Normalize a prefix string, copy into the given fixed-size buffer,
+ *        and show an error if it doesn’t fit.
+ *
+ * @param parent     The GTK window to parent the error dialog on.
+ * @param raw        The raw prefix string (may be relative).
+ * @param out_buf    Pre-allocated buffer of size FIXED_STRING_FIELD_SZ.
+ */
+static void apply_prefix_to_global(GtkWindow *parent, const char *raw,
+                                   char *out_buf) {
+  if (raw == nullptr || *raw == '\0')
+    return;
+
+  char *abs_val = make_absolute_prefix(raw);
+
+  size_t required;
+  if (!str_copy_formatted(out_buf, &required, FIXED_STRING_FIELD_SZ, "%s",
+                          abs_val)) {
+    show_error_dialog(
+        parent, "Invalid prefix path specified, changes will be ignored.");
+  }
+
+  g_free(abs_val);
+}
+
+/**
  * @brief Process the OK response for the options dialog.
  *
  * Retrieves user input from the dialog, validates it, and updates global
@@ -289,6 +333,8 @@ static void handle_ok_response(GtkDialog *dialog) {
       GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), "wineprefix-entry"));
   const auto winebase_entry =
       GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), "winebase-entry"));
+  const auto gameprefix_entry =
+      GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), "gameprefix-entry"));
   const auto gamescope_entry =
       GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), "gamescope-entry"));
   const auto gamemode_toggle =
@@ -313,6 +359,13 @@ static void handle_ok_response(GtkDialog *dialog) {
       gtk_entry_buffer_get_text(gtk_entry_get_buffer(winebase_entry));
   if (winebase && strlen(winebase) > 0 && !validate_wine_dir(winebase)) {
     show_error_dialog(parent, "Invalid wine base directory specified");
+    return;
+  }
+
+  const char *gameprefix =
+      gtk_entry_buffer_get_text(gtk_entry_get_buffer(gameprefix_entry));
+  if (!validate_prefix_name(gameprefix)) {
+    show_error_dialog(parent, "Invalid game files path specified");
     return;
   }
 
@@ -343,18 +396,12 @@ static void handle_ok_response(GtkDialog *dialog) {
     return;
   }
 
-  char *abs_prefix = make_absolute_prefix(wineprefix);
-  size_t required;
-  bool success = str_copy_formatted(wineprefix_global, &required,
-                                    FIXED_STRING_FIELD_SZ, "%s", abs_prefix);
-  if (!success) {
-    show_error_dialog(parent,
-                      "Invalid wineprefix specified, changes will be ignored.");
-  }
-  g_free(abs_prefix);
+  apply_prefix_to_global(parent, wineprefix, wineprefix_global);
+  apply_prefix_to_global(parent, gameprefix, gameprefix_global);
 
-  success = str_copy_formatted(wine_base_dir_global, &required,
-                               FIXED_STRING_FIELD_SZ, "%s", winebase);
+  size_t required;
+  bool success = str_copy_formatted(wine_base_dir_global, &required,
+                                    FIXED_STRING_FIELD_SZ, "%s", winebase);
   if (!success) {
     show_error_dialog(
         parent,
@@ -533,18 +580,28 @@ GtkWidget *create_options_dialog(LauncherData *ld,
   g_signal_connect(winebase_button, "clicked",
                    G_CALLBACK(on_winebase_browse_clicked), dialog);
 
+  GtkWidget *gameprefix_label = gtk_label_new("Game Path:");
+  GtkWidget *gameprefix_entry = gtk_entry_new();
+  GtkWidget *gameprefix_button = gtk_button_new_with_label("Browse...");
+  gtk_grid_attach(GTK_GRID(grid), gameprefix_label, 0, 2, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), gameprefix_entry, 1, 2, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), gameprefix_button, 2, 2, 1, 1);
+  g_object_set_data(G_OBJECT(dialog), "gameprefix-entry", gameprefix_entry);
+  g_signal_connect(gameprefix_button, "clicked",
+                   G_CALLBACK(on_gameprefix_browse_clicked), dialog);
+
   GtkWidget *gamemode_toggle = gtk_check_button_new_with_label(
       "Use Feral Gamemode (only selectable if installed)");
-  gtk_grid_attach(GTK_GRID(grid), gamemode_toggle, 0, 2, 3, 1);
+  gtk_grid_attach(GTK_GRID(grid), gamemode_toggle, 0, 3, 3, 1);
   g_object_set_data(G_OBJECT(dialog), "gamemode-toggle", gamemode_toggle);
 
   GtkWidget *gamescope_toggle = gtk_check_button_new_with_label(
       "Use Gamescope (only selectable if installed, UNSTABLE)");
   GtkWidget *gamescope_args_label = gtk_label_new("Gamescope Arguments:");
   GtkWidget *gamescope_entry = gtk_entry_new();
-  gtk_grid_attach(GTK_GRID(grid), gamescope_toggle, 0, 3, 3, 1);
-  gtk_grid_attach(GTK_GRID(grid), gamescope_args_label, 0, 4, 1, 1);
-  gtk_grid_attach(GTK_GRID(grid), gamescope_entry, 1, 4, 2, 1);
+  gtk_grid_attach(GTK_GRID(grid), gamescope_toggle, 0, 4, 3, 1);
+  gtk_grid_attach(GTK_GRID(grid), gamescope_args_label, 0, 5, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), gamescope_entry, 1, 5, 2, 1);
   g_object_set_data(G_OBJECT(dialog), "gamescope-toggle", gamescope_toggle);
   g_object_set_data(G_OBJECT(dialog), "gamescope-entry", gamescope_entry);
   gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(gamescope_entry)),
@@ -556,9 +613,9 @@ GtkWidget *create_options_dialog(LauncherData *ld,
       "Launch TERA Toolbox (ignored if no path is provided)");
   GtkWidget *toolbox_entry = gtk_entry_new();
   GtkWidget *toolbox_button = gtk_button_new_with_label("Browse...");
-  gtk_grid_attach(GTK_GRID(grid), toolbox_toggle, 0, 5, 3, 1);
-  gtk_grid_attach(GTK_GRID(grid), toolbox_entry, 0, 6, 2, 1);
-  gtk_grid_attach(GTK_GRID(grid), toolbox_button, 2, 6, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), toolbox_toggle, 0, 6, 3, 1);
+  gtk_grid_attach(GTK_GRID(grid), toolbox_entry, 0, 7, 2, 1);
+  gtk_grid_attach(GTK_GRID(grid), toolbox_button, 2, 7, 1, 1);
   g_object_set_data(G_OBJECT(dialog), "toolbox-toggle", toolbox_toggle);
   g_object_set_data(G_OBJECT(dialog), "toolbox-entry", toolbox_entry);
   g_signal_connect(toolbox_toggle, "toggled", G_CALLBACK(on_toolbox_toggled),
@@ -570,6 +627,8 @@ GtkWidget *create_options_dialog(LauncherData *ld,
                             wineprefix_global, -1);
   gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(winebase_entry)),
                             wine_base_dir_global, -1);
+  gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(gameprefix_entry)),
+                            gameprefix_global, -1);
   gtk_check_button_set_active(GTK_CHECK_BUTTON(gamemode_toggle),
                               use_gamemoderun);
   gtk_check_button_set_active(GTK_CHECK_BUTTON(gamescope_toggle),
@@ -620,6 +679,32 @@ GtkWidget *create_options_dialog(LauncherData *ld,
 }
 
 /**
+ * @brief Load a string from the “Settings” group, force it to an absolute
+ *        path, and copy into the given buffer.
+ *
+ * @param keyfile    GKeyFile* already loaded from disk
+ * @param key        The key to read (e.g. "wineprefix")
+ * @param out_buf    Pre-allocated buffer (size FIXED_STRING_FIELD_SZ)
+ */
+static void load_absolute_prefix_setting(GKeyFile *keyfile, const char *key,
+                                         char *out_buf) {
+  char *value = g_key_file_get_string(keyfile, "Settings", key, nullptr);
+  if (!value)
+    return;
+
+  char *abs_val = make_absolute_prefix(value);
+
+  size_t needed;
+  if (!str_copy_formatted(out_buf, &needed, FIXED_STRING_FIELD_SZ, "%s",
+                          abs_val)) {
+    g_warning("Unable to load config value '%s': too big.", key);
+  }
+
+  g_free(abs_val);
+  g_free(value);
+}
+
+/**
  * @brief Reads configuration values from "tera-launcher-config.ini" into global
  * variables.
  *
@@ -656,21 +741,9 @@ void config_read_from_ini(void) {
     }                                                                          \
   } while (0)
 
-  /* Special‑case wineprefix so it is always stored absolute. */
-  {
-    char *value =
-        g_key_file_get_string(keyfile, "Settings", "wineprefix", nullptr);
-    if (value) {
-      char *abs_prefix = make_absolute_prefix(value);
-      size_t needed;
-      if (!str_copy_formatted(wineprefix_global, &needed, FIXED_STRING_FIELD_SZ,
-                              "%s", abs_prefix)) {
-        g_warning("Unable to load config value 'wineprefix': too big.");
-      }
-      g_free(abs_prefix);
-      g_free(value);
-    }
-  }
+  /* Special‑case to guarantee paths stored are absolute */
+  load_absolute_prefix_setting(keyfile, "wineprefix", wineprefix_global);
+  load_absolute_prefix_setting(keyfile, "gameprefix", gameprefix_global);
 
   READ_STRING_KEY("wine_base_dir", wine_base_dir_global);
   READ_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
@@ -732,6 +805,7 @@ void config_write_to_ini(void) {
 
   WRITE_STRING_KEY("wineprefix", wineprefix_global);
   WRITE_STRING_KEY("wine_base_dir", wine_base_dir_global);
+  WRITE_STRING_KEY("gameprefix", gameprefix_global);
   WRITE_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
   WRITE_STRING_KEY("gamescope_args", gamescope_args_global);
 

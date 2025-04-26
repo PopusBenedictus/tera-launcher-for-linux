@@ -19,7 +19,7 @@ typedef struct {
   void (*update_callback)(LauncherData *ld, bool do_repair);
 } RepairCallbackData;
 
-char *make_absolute_wineprefix(const char *path) {
+char *make_absolute_prefix(const char *path) {
   if (!path || *path == '\0')
     return g_strdup(""); /* never return NULL */
 
@@ -30,7 +30,7 @@ char *make_absolute_wineprefix(const char *path) {
   return g_build_filename(g_get_home_dir(), path, NULL);
 }
 
-bool validate_wineprefix_name(const char *name) {
+bool validate_prefix_name(const char *name) {
   if (!name || *name == '\0')
     return false;
 
@@ -304,7 +304,7 @@ static void handle_ok_response(GtkDialog *dialog) {
 
   const char *wineprefix =
       gtk_entry_buffer_get_text(gtk_entry_get_buffer(wineprefix_entry));
-  if (!validate_wineprefix_name(wineprefix)) {
+  if (!validate_prefix_name(wineprefix)) {
     show_error_dialog(parent, "Invalid wineprefix specified");
     return;
   }
@@ -343,7 +343,7 @@ static void handle_ok_response(GtkDialog *dialog) {
     return;
   }
 
-  char *abs_prefix = make_absolute_wineprefix(wineprefix);
+  char *abs_prefix = make_absolute_prefix(wineprefix);
   size_t required;
   bool success = str_copy_formatted(wineprefix_global, &required,
                                     FIXED_STRING_FIELD_SZ, "%s", abs_prefix);
@@ -661,7 +661,7 @@ void config_read_from_ini(void) {
     char *value =
         g_key_file_get_string(keyfile, "Settings", "wineprefix", nullptr);
     if (value) {
-      char *abs_prefix = make_absolute_wineprefix(value);
+      char *abs_prefix = make_absolute_prefix(value);
       size_t needed;
       if (!str_copy_formatted(wineprefix_global, &needed, FIXED_STRING_FIELD_SZ,
                               "%s", abs_prefix)) {

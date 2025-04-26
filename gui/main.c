@@ -84,6 +84,18 @@ char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
 char wineprefix_default_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
+ * @brief Game files folder name from the embedded json resource (default
+ * value).
+ */
+char gameprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Game files folder name from the embedded json resource (default
+ * value).
+ */
+char gameprefix_default_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief If specified by the user, a path to a custom build of wine. Unset by
  * default.
  */
@@ -912,6 +924,48 @@ static void parse_and_copy_string(GtkApplication *app,
 }
 
 /**
+ * @brief Parse a string from JSON, make it absolute, validate it, and
+ *        copy into two global buffers.
+ *
+ * @param app            GtkApplication instance (for dialogs).
+ * @param config         The launcher config JSON object.
+ * @param key            The JSON key to fetch (e.g. "wine_prefix_name").
+ * @param out_buf        Buffer to receive the absolute path.
+ * @param out_default    Buffer to receive the same absolute path as a default.
+ */
+static void load_and_validate_path_setting(GtkApplication *app,
+                                           const json_t *config,
+                                           const char *key, char *out_buf,
+                                           char *out_default) {
+  char tmp[FIXED_STRING_FIELD_SZ] = {0};
+  size_t needed;
+
+  parse_and_copy_string(app, config, key, tmp);
+
+  char *abs_val = make_absolute_prefix(tmp);
+  if (!g_path_is_absolute(abs_val) || abs_val[0] == '\0') {
+    show_alert_dialog(
+        gtk_application_get_active_window(app), "Configuration Error",
+        g_strdup_printf("Unable to resolve %s to an absolute path.", key),
+        ALERT_MSG_ERROR);
+    g_error("%s invalid", key);
+  }
+
+  if (!str_copy_formatted(out_buf, &needed, FIXED_STRING_FIELD_SZ, "%s",
+                          abs_val) ||
+      !str_copy_formatted(out_default, &needed, FIXED_STRING_FIELD_SZ, "%s",
+                          abs_val)) {
+    show_alert_dialog(
+        gtk_application_get_active_window(app), "Configuration Error",
+        g_strdup_printf("%s is too long for internal buffer.", key),
+        ALERT_MSG_ERROR);
+    g_error("%s exceeds buffer", key);
+  }
+
+  g_free(abs_val);
+}
+
+/**
  * @brief Load and validate the launcher's configuration from embedded JSON.
  *
  * Reads JSON from /com/tera/launcher/launcher-config.json, populates the global
@@ -933,30 +987,10 @@ static gboolean launcher_init_config(GtkApplication *app) {
   parse_and_copy_string(app, launcher_config_json, "server_list_url",
                         server_list_url_global);
 
-  char tmp_prefix[FIXED_STRING_FIELD_SZ] = {0};
-  parse_and_copy_string(app, launcher_config_json, "wine_prefix_name",
-                        tmp_prefix);
-
-  char *abs_prefix = make_absolute_wineprefix(tmp_prefix);
-  if (!g_path_is_absolute(abs_prefix) || abs_prefix[0] == '\0') {
-    show_alert_dialog(gtk_application_get_active_window(app),
-                      "Configuration Error",
-                      "Unable to resolve wine_prefix_name to an absolute path.",
-                      ALERT_MSG_ERROR);
-    g_error("wine_prefix_name invalid");
-  }
-
-  size_t needed;
-  if (!str_copy_formatted(wineprefix_global, &needed, FIXED_STRING_FIELD_SZ,
-                          "%s", abs_prefix) ||
-      !str_copy_formatted(wineprefix_default_global, &needed,
-                          FIXED_STRING_FIELD_SZ, "%s", abs_prefix)) {
-    show_alert_dialog(
-        gtk_application_get_active_window(app), "Configuration Error",
-        "Wine prefix path is too long for internal buffer.", ALERT_MSG_ERROR);
-    g_error("wine_prefix_name exceeds buffer");
-  }
-  g_free(abs_prefix);
+  load_and_validate_path_setting(app, launcher_config_json, "wine_prefix_name",
+                                 wineprefix_global, wineprefix_default_global);
+  load_and_validate_path_setting(app, launcher_config_json, "game_prefix_name",
+                                 gameprefix_global, gameprefix_default_global);
 
   parse_and_copy_string(app, launcher_config_json, "game_lang",
                         game_lang_global);
@@ -1815,7 +1849,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     use_gamescope = false;
   }
 
-  if (!validate_wineprefix_name(wineprefix_global)) {
+  if (!validate_prefix_name(wineprefix_global)) {
     if (strcmp(wineprefix_global, wineprefix_default_global) == 0) {
       g_error("Invalid wineprefix, and the global wineprefix value matches "
               "invalid. Cannot continue.");

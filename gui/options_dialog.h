@@ -24,7 +24,7 @@ extern "C" {
  *
  * The caller owns the returned string and must g_free() it.
  */
-char *make_absolute_wineprefix(const char *path);
+char *make_absolute_prefix(const char *path);
 
 /**
  * @brief Validate a wineprefix name.
@@ -34,7 +34,7 @@ char *make_absolute_wineprefix(const char *path);
  * @param name The wineprefix name to validate.
  * @return true if the name is valid, false otherwise.
  */
-bool validate_wineprefix_name(const char *name);
+bool validate_prefix_name(const char *name);
 
 /**
  * @brief Validate a Wine directory.

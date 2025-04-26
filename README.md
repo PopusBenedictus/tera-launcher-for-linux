@@ -133,7 +133,8 @@ Before building, you **must** populate all values in the `launcher-config.json` 
       "public_patch_url": "https://some.url/public/patch",
       "public_launcher_assets_url": "https://some.url/public/launcher/images",
       "server_list_url": "https://some.url/ServerList?lang=en",
-      "wine_prefix_name": ".prefix_folder_name_here",
+      "wine_prefix_name": ".prefix_root/wineprefix",
+      "game_prefix_name": ".prefix_root/files",
       "game_lang": "EUR",
       "public_launcher_assets": [
         "bg.jpg",

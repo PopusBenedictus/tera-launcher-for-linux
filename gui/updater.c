@@ -89,15 +89,6 @@ static void update_progress(ProgressCallback callback, double progress,
     callback(progress, message, user_data);
 }
 
-/*
- * write_data:
- *
- * A callback for libcurl write operations that writes received data to a FILE.
- */
-static size_t write_data(void *ptr, size_t size, size_t nmemb, void *stream) {
-  return fwrite(ptr, size, nmemb, stream);
-}
-
 // Helper to print size in KB or MB
 static void print_size(const double bytes, char *out, const size_t sz) {
   // 1 MB = 1024 * 1024 bytes
@@ -256,8 +247,8 @@ static char *download_file(const char *url, const unsigned long expected_size,
     return nullptr;
   }
 
+  curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, (128 * 1024));
   curl_easy_setopt(curl, CURLOPT_URL, url);
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
 
   // Hook up progress updates if we received a prefix string.

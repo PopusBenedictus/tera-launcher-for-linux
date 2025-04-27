@@ -164,9 +164,13 @@ static int xfer_progress(void *p, curl_off_t dltotal, curl_off_t dlnow,
   if (now - data->last_update_time >= 0.15) {
     data->last_update_time = now;
     curl_easy_getinfo(curl, CURLINFO_SPEED_DOWNLOAD_T, &speed);
-    print_size((double)dlnow, data->download_now, sizeof(data->download_now));
-    print_size((double)dltotal, data->download_total,
-               sizeof(data->download_total));
+
+    // Clamp inputs to zero if we receive negative values to avoid displaying
+    // invalid data.
+    print_size((double)dlnow >= 0.0 ? (double)dlnow : 0.0, data->download_now,
+               sizeof(data->download_now));
+    print_size((double)dltotal >= 0.0 ? (double)dltotal : 0.0,
+               data->download_total, sizeof(data->download_total));
     print_speed(speed, data->download_speed, sizeof(data->download_speed));
     size_t required;
     constexpr size_t pbar_sz = sizeof(data->pbar_label);
@@ -178,8 +182,15 @@ static int xfer_progress(void *p, curl_off_t dltotal, curl_off_t dlnow,
               "buffer of %zu bytes.",
               required, pbar_sz);
     }
-    update_progress(data->download_callback, (double)dlnow / (double)dltotal,
-                    data->pbar_label, data->user_data);
+
+    // Like earlier, clamp result to zero if negative value is produced (invalid
+    // data, divide by zero result, etc.)
+    double progress_now = (double)dlnow / (double)dltotal;
+    if (progress_now < 0.0)
+      progress_now = 0.0;
+
+    update_progress(data->download_callback, progress_now, data->pbar_label,
+                    data->user_data);
   }
   return 0;
 }

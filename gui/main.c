@@ -96,6 +96,12 @@ char gameprefix_global[FIXED_STRING_FIELD_SZ] = {0};
 char gameprefix_default_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
+ * @brief Config files folder name from the embedded json resource (default
+ * value).
+ */
+char configprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief If specified by the user, a path to a custom build of wine. Unset by
  * default.
  */
@@ -145,6 +151,14 @@ bool use_gamemoderun = false;
  * support. Turned off by default.
  */
 bool use_gamescope = false;
+
+/**
+ * @brief If set to FALSE, we assume configuration and game files are in the
+ * same directory as the launcher itself. When set to TRUE, configuration is
+ * assumed to be stored where configprefix_global points, and that game files
+ * are not stored in the present working directory of the launcher.
+ */
+bool appimage_mode = false;
 
 /**
  * @brief If set to TRUE, attempt to launch TERA Toolbox before launching the
@@ -953,8 +967,9 @@ static void load_and_validate_path_setting(GtkApplication *app,
 
   if (!str_copy_formatted(out_buf, &needed, FIXED_STRING_FIELD_SZ, "%s",
                           abs_val) ||
-      !str_copy_formatted(out_default, &needed, FIXED_STRING_FIELD_SZ, "%s",
-                          abs_val)) {
+      (out_default &&
+       !str_copy_formatted(out_default, &needed, FIXED_STRING_FIELD_SZ, "%s",
+                           abs_val))) {
     show_alert_dialog(
         gtk_application_get_active_window(app), "Configuration Error",
         g_strdup_printf("%s is too long for internal buffer.", key),
@@ -981,6 +996,8 @@ static gboolean launcher_init_config(GtkApplication *app) {
   if (!launcher_config_json)
     return false;
 
+  appimage_mode = g_getenv("APPIMAGE_MODE_ENABLED") != nullptr;
+
   parse_and_copy_string(app, launcher_config_json, "public_patch_url",
                         patch_url_global);
   parse_and_copy_string(app, launcher_config_json, "auth_url", auth_url_global);
@@ -991,7 +1008,9 @@ static gboolean launcher_init_config(GtkApplication *app) {
                                  wineprefix_global, wineprefix_default_global);
   load_and_validate_path_setting(app, launcher_config_json, "game_prefix_name",
                                  gameprefix_global, gameprefix_default_global);
-
+  load_and_validate_path_setting(app, launcher_config_json,
+                                 "config_prefix_name", configprefix_global,
+                                 nullptr);
   parse_and_copy_string(app, launcher_config_json, "game_lang",
                         game_lang_global);
   parse_and_copy_string(app, launcher_config_json, "service_name",
@@ -1188,7 +1207,12 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
   // Share patch URL and game path in UpdateData for update functions to do
   // their thing.
   thread_data->update_data.public_patch_url = patch_url_global;
-  thread_data->update_data.game_path = g_get_current_dir();
+
+  if (appimage_mode) {
+    thread_data->update_data.game_path = g_strdup(gameprefix_global);
+  } else {
+    thread_data->update_data.game_path = g_get_current_dir();
+  }
 
   // Populate UpdateThreadData
   thread_data->ld = ld;
@@ -1520,9 +1544,15 @@ static gpointer game_launcher_thread(gpointer data) {
       *p = '\\';
 
   char game_path[FIXED_STRING_FIELD_SZ];
+  char *game_base;
   size_t need;
+  if (appimage_mode) {
+    game_base = gameprefix_global;
+  } else {
+    game_base = cwd;
+  }
   if (!str_copy_formatted(game_path, &need, sizeof game_path,
-                          "Z:%s\\Binaries\\TERA.exe", cwd)) {
+                          "Z:%s\\Binaries\\TERA.exe", game_base)) {
     g_error("Path buffer too small; need %zu bytes", need);
   }
 

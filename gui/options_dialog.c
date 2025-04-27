@@ -716,10 +716,19 @@ static void load_absolute_prefix_setting(GKeyFile *keyfile, const char *key,
 void config_read_from_ini(void) {
   GKeyFile *keyfile = g_key_file_new();
   GError *error = nullptr;
+  char ini_path[FIXED_STRING_FIELD_SZ] = {0};
+  if (appimage_mode) {
+    size_t required;
+    if (!str_copy_formatted(ini_path, &required, FIXED_STRING_FIELD_SZ, "%s/%s",
+                            configprefix_global, "tera-launcher-config.ini")) {
+      g_error("Unable to construct config path: too big for buffer.");
+    }
+  } else {
+    strcpy(ini_path, "tera-launcher-config.ini");
+  }
 
   // Attempt to load the INI file; silently ignore if not found
-  if (!g_key_file_load_from_file(keyfile, "tera-launcher-config.ini",
-                                 G_KEY_FILE_NONE, &error)) {
+  if (!g_key_file_load_from_file(keyfile, ini_path, G_KEY_FILE_NONE, &error)) {
     g_clear_error(&error);
     g_key_file_free(keyfile);
     return;
@@ -793,6 +802,19 @@ void config_read_from_ini(void) {
  * unchanged).
  */
 void config_write_to_ini(void) {
+  if (appimage_mode) {
+    GError *folder_create_error = nullptr;
+    auto config_base = g_file_new_for_path(configprefix_global);
+    if (!g_file_make_directory_with_parents(config_base, nullptr,
+                                            &folder_create_error)) {
+      if (folder_create_error->code != G_IO_ERROR_EXISTS)
+        g_error("Error creating config data path: %s",
+                folder_create_error->message);
+      g_error_free(folder_create_error);
+    }
+    g_object_unref(config_base);
+  }
+
   GKeyFile *keyfile = g_key_file_new();
 
 // Helper macro to write string keys if they are non-empty
@@ -822,8 +844,19 @@ void config_write_to_ini(void) {
   gsize length = 0;
   gchar *data = g_key_file_to_data(keyfile, &length, nullptr);
   GError *error = nullptr;
-  if (!g_file_set_contents("tera-launcher-config.ini", data, (gssize)length,
-                           &error)) {
+
+  char ini_path[FIXED_STRING_FIELD_SZ] = {0};
+  if (appimage_mode) {
+    size_t required;
+    if (!str_copy_formatted(ini_path, &required, FIXED_STRING_FIELD_SZ, "%s/%s",
+                            configprefix_global, "tera-launcher-config.ini")) {
+      g_error("Unable to construct config path: too big for buffer.");
+    }
+  } else {
+    strcpy(ini_path, "tera-launcher-config.ini");
+  }
+
+  if (!g_file_set_contents(ini_path, data, (gssize)length, &error)) {
     g_warning("Unable to write config to disk: %s", error->message);
     g_clear_error(&error);
   }

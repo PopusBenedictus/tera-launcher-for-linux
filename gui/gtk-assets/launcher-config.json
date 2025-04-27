@@ -5,6 +5,7 @@
   "server_list_url": "http://server.terastarscape.com:81/tera/ServerList?lang=en",
   "wine_prefix_name": ".terastarscape/wineprefix",
   "game_prefix_name": ".terastarscape/files",
+  "config_prefix_name": ".terastarscape/config",
   "game_lang": "EUR",
   "public_launcher_assets": [
     "bg.jpg",

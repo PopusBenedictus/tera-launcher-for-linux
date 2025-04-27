@@ -6,6 +6,7 @@
  */
 
 #include "updater.h"
+#include "globals.h"
 #include "util.h"
 #include <curl/curl.h>
 #include <gio/gio.h>
@@ -343,15 +344,14 @@ static gboolean download_version_ini(UpdateData *data) {
 
   GError *error = nullptr;
   gchar *current_dir = g_get_current_dir();
-  char dest_path[PATH_MAX];
-  size_t required;
-  const bool success = str_copy_formatted(dest_path, &required, PATH_MAX,
-                                          "%s/%s", current_dir, "version.ini");
-  if (!success) {
-    g_error(
-        "Failed to allocate %zu bytes for file path into buffer of %u bytes.",
-        required, PATH_MAX);
+  gchar *dest_path;
+
+  if (appimage_mode) {
+    dest_path = g_build_filename(configprefix_global, "version.ini", nullptr);
+  } else {
+    dest_path = g_build_filename(current_dir, "version.ini", nullptr);
   }
+
   GFile *src_file = g_file_new_for_path(version_ini_path);
   GFile *dest_file = g_file_new_for_path(dest_path);
   g_free(current_dir);
@@ -363,9 +363,12 @@ static gboolean download_version_ini(UpdateData *data) {
       g_error_free(error);
       g_object_unref(src_file);
       g_object_unref(dest_file);
+      g_free(dest_path);
       return FALSE;
     }
   }
+
+  g_free(dest_path);
 
   if (!g_file_move(src_file, dest_file, G_FILE_COPY_NONE, nullptr, nullptr,
                    nullptr, &error)) {
@@ -397,6 +400,12 @@ static gboolean download_version_ini(UpdateData *data) {
 static sqlite3 *load_server_db(UpdateData *data, gboolean skip_download) {
   sqlite3 *db = nullptr;
 
+  gchar *db_full_path;
+  if (appimage_mode)
+    db_full_path = g_build_filename(configprefix_global, db_name, nullptr);
+  else
+    db_full_path = g_strdup(db_name);
+
   /* Here we use 0 for expected_size to disable the size check.
      There is no way to know what the size of this file is in advance and no
      verification methods are provided AFAIK. */
@@ -412,7 +421,7 @@ static sqlite3 *load_server_db(UpdateData *data, gboolean skip_download) {
       return nullptr;
     }
 
-    if (!extract_cabinet(db_cab_path, db_name, 0)) {
+    if (!extract_cabinet(db_cab_path, db_full_path, 0)) {
       g_printerr("Failed to extract the database cabinet file.\n");
       unlink(db_cab_path);
       g_free(db_cab_path);
@@ -423,12 +432,13 @@ static sqlite3 *load_server_db(UpdateData *data, gboolean skip_download) {
   }
 
   /* Open the SQLite database */
-  if (sqlite3_open(db_name, &db) != SQLITE_OK) {
+  if (sqlite3_open(db_full_path, &db) != SQLITE_OK) {
     g_printerr("Error opening database: %s\n", sqlite3_errmsg(db));
     sqlite3_close(db);
     db = nullptr;
   }
 
+  g_free(db_full_path);
   return db;
 }
 
@@ -519,8 +529,18 @@ static gboolean parse_version_ini() {
   GKeyFile *key_file = g_key_file_new();
   GError *error = nullptr;
 
-  if (!g_key_file_load_from_file(key_file, "version.ini", G_KEY_FILE_NONE,
-                                 &error)) {
+  char ini_path[FIXED_STRING_FIELD_SZ] = {0};
+  if (appimage_mode) {
+    size_t required;
+    if (!str_copy_formatted(ini_path, &required, FIXED_STRING_FIELD_SZ, "%s/%s",
+                            configprefix_global, "version.ini")) {
+      g_error("Unable to construct config path: too big for buffer.");
+    }
+  } else {
+    strcpy(ini_path, "version.ini");
+  }
+
+  if (!g_key_file_load_from_file(key_file, ini_path, G_KEY_FILE_NONE, &error)) {
     g_object_unref(key_file);
     return FALSE;
   }
@@ -769,27 +789,30 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
     g_free(file_name);
     update_progress(callback, (double)processed / (double)record_count,
                     progress_msg, user_data);
-    if (g_file_test((const gchar *)path_text, G_FILE_TEST_EXISTS)) {
-      char *md5_result = compute_file_md5((const char *)path_text);
+
+    gchar *processed_path =
+        g_build_filename(data->game_path, path_text, nullptr);
+    if (g_file_test(processed_path, G_FILE_TEST_EXISTS)) {
+      char *md5_result = compute_file_md5(processed_path);
       if (strcmp((const char *)hash_text, md5_result) == 0) {
-        if (get_file_size((const char *)path_text) == decompressed_size) {
+        if (get_file_size(processed_path) == decompressed_size) {
           /* File exists, hash matches, size matches -- nothing to do here. */
           free(md5_result);
           continue;
         }
       } else {
-        GFile *busted_file = g_file_new_for_path((const char *)path_text);
+        GFile *busted_file = g_file_new_for_path(processed_path);
         if (!busted_file) {
           // TODO: Handle this better because ya know, if we can't replace this
           // bad file then the repair is not going to succeed :^)
-          g_printerr("Unable to delete '%s'", (const char *)path_text);
+          g_printerr("Unable to delete '%s'", processed_path);
           continue;
         }
 
         GError *error = nullptr;
         if (!g_file_delete(busted_file, nullptr, &error)) {
           // TODO: See earlier TODO.
-          g_printerr("Unable to delete '%s': %s", (const char *)path_text,
+          g_printerr("Unable to delete '%s': %s", processed_path,
                      error->message);
           g_clear_error(&error);
         }
@@ -799,7 +822,7 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
 
     auto info = g_new0(FileInfo, 1);
 
-    info->path = g_strdup((const char *)path_text);
+    info->path = g_strdup(processed_path);
     info->hash = g_strdup((const char *)hash_text);
     info->size = compressed_size;
     info->decompressed_size = decompressed_size;
@@ -807,6 +830,7 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
     info->url = g_strdup_printf("%s/%s/%d-%d.cab", data->public_patch_url,
                                 patch_path, id, new_ver);
     repair_list = g_list_append(repair_list, info);
+    g_free(processed_path);
   }
   sqlite3_finalize(stmt);
   sqlite3_close(db);
@@ -872,10 +896,14 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
     }
     update_progress(callback, (double)processed / directories_count,
                     progress_msg, user_data);
-    if (g_file_test((const gchar *)dir_path, G_FILE_TEST_EXISTS)) {
-      if (g_file_test((const gchar *)dir_path, G_FILE_TEST_IS_DIR))
+
+    gchar *processed_path =
+        g_build_filename(data->game_path, dir_path, nullptr);
+
+    if (g_file_test(processed_path, G_FILE_TEST_EXISTS)) {
+      if (g_file_test(processed_path, G_FILE_TEST_IS_DIR))
         continue;
-      if (remove((const char *)dir_path) != 0) {
+      if (remove(processed_path) != 0) {
         update_progress(callback, 1.0,
                         "Failed to remove file where directory should be",
                         user_data);
@@ -885,12 +913,14 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
       }
     }
 
-    if (g_mkdir_with_parents((const char *)dir_path, 0755) != 0) {
+    if (g_mkdir_with_parents(processed_path, 0755) != 0) {
       update_progress(callback, 1.0, "Failed to create directory", user_data);
       sqlite3_finalize(stmt);
       sqlite3_close(db);
       return FALSE;
     }
+
+    g_free(processed_path);
   }
 
   // Move on to the file download step.
@@ -979,26 +1009,20 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
     }
     g_free(extracted_md5);
 
-    /* Write the validated file to its destination.
-       Construct the destination path as data->game_path + "/" + info->path.
-       In production, ensure that the directory hierarchy exists. */
-    gchar *dest_path = g_build_filename(data->game_path, info->path, nullptr);
-
     /* Create GFile objects to use g_file_move */
     GFile *src_file = g_file_new_for_path(temp_extract);
-    GFile *dest_file = g_file_new_for_path(dest_path);
+    GFile *dest_file = g_file_new_for_path(info->path);
     GError *error = nullptr;
 
     if (!g_file_move(src_file, dest_file, G_FILE_COPY_NONE, nullptr, nullptr,
                      nullptr, &error)) {
-      g_printerr("Failed to move file to destination: %s\n", dest_path);
+      g_printerr("Failed to move file to destination: %s\n", info->path);
       g_error_free(error);
       unlink(temp_extract);
       overall_success = FALSE;
     }
     g_object_unref(src_file);
     g_object_unref(dest_file);
-    g_free(dest_path);
   }
 
   update_progress(callback, 1.0, "All downloads processed.", user_data);

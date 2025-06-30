@@ -319,10 +319,12 @@ static gboolean extract_cabinet(const char *cabinet_path, const char *dest_path,
   bool success = false;
   if (appimage_mode)
     success = str_copy_formatted(command, &required, FIXED_STRING_FIELD_SZ,
-                         "%s/usr/bin/unelzma \"%s\" \"%s\"", appdir_global, cabinet_path, dest_path);
+                                 "%s/usr/bin/unelzma \"%s\" \"%s\"",
+                                 appdir_global, cabinet_path, dest_path);
   else
-    success = str_copy_formatted(command, &required, FIXED_STRING_FIELD_SZ,
-                         "./unelzma \"%s\" \"%s\"", cabinet_path, dest_path);
+    success =
+        str_copy_formatted(command, &required, FIXED_STRING_FIELD_SZ,
+                           "./unelzma \"%s\" \"%s\"", cabinet_path, dest_path);
 
   if (!success) {
     g_error("Failed to allocate %zu bytes for command path string in buffer of "

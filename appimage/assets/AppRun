@@ -1,0 +1,8 @@
+#!/bin/sh
+# Work around a yet figured out quirk with HiDPI scaling with the app in an AppImage.
+export GDK_SCALE=${GDK_SCALE:-2}
+export GDK_DPI_SCALE=${GDK_DPI_SCALE:-0.5}
+
+# Allow app to operate detached from the game directory.
+export APPIMAGE_MODE_ENABLED=1
+exec "$APPDIR/usr/bin/tera_launcher_for_linux" "$@"

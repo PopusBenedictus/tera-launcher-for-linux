@@ -1565,7 +1565,11 @@ static gpointer game_launcher_thread(gpointer data) {
   }
 
   gchar *cwd_g = g_get_current_dir();
-  gchar *stub_path = g_build_filename(cwd_g, "stub_launcher.exe", NULL);
+  gchar *stub_path = nullptr;
+  if (appimage_mode)
+    stub_path = g_build_filename(appdir_global, "usr/bin", "stub_launcher.exe", NULL);
+  else
+    stub_path = g_build_filename(cwd_g, "stub_launcher.exe", NULL);
 
   if (!g_file_test(stub_path, G_FILE_TEST_EXISTS)) {
     g_message("stub_launcher.exe not found: %s", stub_path);

@@ -1567,7 +1567,8 @@ static gpointer game_launcher_thread(gpointer data) {
   gchar *cwd_g = g_get_current_dir();
   gchar *stub_path = nullptr;
   if (appimage_mode)
-    stub_path = g_build_filename(appdir_global, "usr/bin", "stub_launcher.exe", NULL);
+    stub_path =
+        g_build_filename(appdir_global, "usr/bin", "stub_launcher.exe", NULL);
   else
     stub_path = g_build_filename(cwd_g, "stub_launcher.exe", NULL);
 

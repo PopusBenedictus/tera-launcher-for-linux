@@ -68,6 +68,11 @@ struct CurlResponse {
 };
 
 /**
+ * @brief AppDir path, only used in when AppImage mode is enabled.
+ */
+char appdir_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief Game language string from the embedded json resource.
  */
 char game_lang_global[FIXED_STRING_FIELD_SZ] = {0};
@@ -997,6 +1002,9 @@ static gboolean launcher_init_config(GtkApplication *app) {
     return false;
 
   appimage_mode = g_getenv("APPIMAGE_MODE_ENABLED") != nullptr;
+  const gchar *appdir = g_getenv("APPDIR");
+  strcpy(appdir_global, appdir);
+  g_warning("APPDIR: %s", appdir_global);
 
   parse_and_copy_string(app, launcher_config_json, "public_patch_url",
                         patch_url_global);

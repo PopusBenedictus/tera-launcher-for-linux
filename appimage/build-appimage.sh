@@ -1,150 +1,233 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-}" # e.g. "https://github.com/PopusBenedictus/tera-launcher-for-linux.git"
+#========================================
+# Configuration (environment overrides)
+#========================================
+REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-main}"
-# If CLONE_REPO=1, we'll clone into SRC_DIR; otherwise we assume SRC_DIR="../"
 CLONE_REPO="${CLONE_REPO:-0}"
 GE_PROTON_VERSION="${GE_PROTON_VERSION:-GE-Proton10-7}"
 GE_PROTON_TARBALL="${GE_PROTON_TARBALL:-${GE_PROTON_VERSION}.tar.gz}"
-GE_PROTON_URL="${GE_PROTON_URL:-\
-https://github.com/GloriousEggroll/proton-ge-custom/releases/download/\
-${GE_PROTON_VERSION}/${GE_PROTON_TARBALL}}"
+GE_PROTON_URL="${GE_PROTON_URL:-https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_PROTON_VERSION}/${GE_PROTON_TARBALL}}"
 GE_PROTON_DEST="ge-proton"
+SCRATCH_DIR="/scratch"
+BUILD_DIR="${SCRATCH_DIR}/build"
+APPDIR="$(pwd)/AppDir"
 LINUXDEPLOY="linuxdeploy-x86_64.AppImage"
 PLUGIN_GTK_SH="linuxdeploy-plugin-gtk.sh"
 PLUGIN_GTK_BIN="linuxdeploy-plugin-gtk"
+APPIMAGETOOL="appimagetool-x86_64.AppImage"
 
-echo "== Settings =="
-echo " CLONE_REPO=$CLONE_REPO"
-[[ "$CLONE_REPO" == "1" ]] && echo "  REPO_URL=$REPO_URL"
-echo " BRANCH=$BRANCH"
-echo " GE_PROTON_VERSION=$GE_PROTON_VERSION"
-echo ""
+#========================================
+# Helpers
+#========================================
+usage() {
+  cat <<EOF
+Usage: ${0##*/} [options]
 
-# Use parent source directory if not cloning a repo, otherwise move into cloned repo.
-if [[ "$CLONE_REPO" == "1" ]]; then
-  if [[ -z "$REPO_URL" ]]; then
-    echo "Error: CLONE_REPO=1 but REPO_URL is empty." >&2
-    exit 1
-  fi
-  SRC_DIR="src-repo"
-  rm -rf "$SRC_DIR"
-  echo "Cloning $REPO_URL → $SRC_DIR"
-  git clone "$REPO_URL" "$SRC_DIR"
-else
-  # Assume we're in <repo_root>/appimage, so parent (..) is repo root
-  SRC_DIR="../"
-  # Git might get fussy if the owner of the src directory differs from the container UID
-  git config --global --add safe.directory /src
-fi
+Options:
+  -h, --help            Show this help message and exit
+  -c, --clone           Clone the repository (requires REPO_URL)
+  -b, --branch BRANCH   Git branch to use (default: $BRANCH)
+EOF
+  exit 0
+}
 
-if [[ ! -d "$SRC_DIR/.git" ]]; then
-  echo "Error: No git repo found in '$SRC_DIR'." >&2
+log() {
+  printf "[INFO] %s\n" "$*"
+}
+
+error() {
+  printf "[ERROR] %s\n" "$*" >&2
   exit 1
-fi
+}
 
-cd "$SRC_DIR"
-if [[ "$CLONE_REPO" == "1" ]]; then
+#========================================
+# Argument parsing
+#========================================
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      ;;
+    -c|--clone)
+      CLONE_REPO=1
+      shift
+      ;;
+    -b|--branch)
+      BRANCH="${2:-}"
+      shift 2
+      ;;
+    *)
+      error "Unknown option: $1"
+      ;;
+  esac
+done
+
+#========================================
+# Ensure dependencies
+#========================================
+dependencies=(git cmake wget tar)
+for cmd in "${dependencies[@]}"; do
+  command -v "$cmd" >/dev/null 2>&1 || error "Required command '$cmd' not found"
+done
+
+#========================================
+# Prepare source
+#========================================
+prepare_source() {
+  if [[ "$CLONE_REPO" == "1" ]]; then
+    [[ -n "$REPO_URL" ]] || error "CLONE_REPO is set but REPO_URL is empty"
+    SRC_DIR="src-repo"
+    rm -rf "$SRC_DIR"
+    log "Cloning $REPO_URL into $SRC_DIR"
+    git clone "$REPO_URL" "$SRC_DIR"
+    cd "$SRC_DIR"
     git fetch --all --prune
     git checkout "$BRANCH"
-fi
+  else
+    SRC_DIR=".."
+    cd "$SRC_DIR"
+    git config --global --add safe.directory /src || true
+  fi
+  [[ -d ".git" ]] || error "No git repository in $SRC_DIR"
+  SRC_DIR="$(pwd)"
+  log "Source directory: $SRC_DIR"
+}
 
+#========================================
 # Build the launcher
-mkdir -p build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . --parallel "$(nproc)"
-cd ..
+#========================================
+build_launcher() {
+  log "Building launcher in $BUILD_DIR"
+  rm -rf "$BUILD_DIR"
+  mkdir -p "$BUILD_DIR" && cd "$BUILD_DIR"
+  cmake "$SRC_DIR" -DCMAKE_BUILD_TYPE=Release
+  cmake --build . --parallel "$(nproc)"
+}
 
-# Prepare AppDir
-APPDIR="$(pwd)/AppDir"
-rm -rf "$APPDIR"
-mkdir -p "$APPDIR/usr/bin"
+#========================================
+# Set up AppDir structure
+#========================================
+prepare_appdir() {
+  log "Preparing AppDir at $APPDIR"
+  rm -rf "$APPDIR"
+  mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
+}
 
+#========================================
 # Copy binaries and assets
-cp build/bin/* "$APPDIR/usr/bin/"
-cp appimage/assets/tera-launcher.desktop "$APPDIR/tera-launcher.desktop"
-cp appimage/assets/tera-launcher.png    "$APPDIR/tera-launcher.png"
-cp appimage/assets/AppRun               "$APPDIR/AppRun"
-chmod +x "$APPDIR/AppRun"
+#========================================
+copy_binaries_and_assets() {
+  log "Copying launcher binaries and assets"
+  cp "$BUILD_DIR/bin/"* "$APPDIR/usr/bin/"
 
-echo "Fetching linuxdeploy"
-wget -q -O "$LINUXDEPLOY" \
-  "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/$LINUXDEPLOY"
+  copy_tool() {
+    local tool="$1"
+    log "Including $tool"
+    cp "$(command -v $tool)" "$APPDIR/usr/bin/"
+  }
 
-echo "Fetching linuxdeploy-plugin-gtk script"
-wget -q -O "$PLUGIN_GTK_SH" \
-  "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh"
+  for t in cabextract unzip 7z 7za 7zr sh bash; do
+    copy_tool "$t"
+  done
+  cp -r /usr/lib/7zip "$APPDIR/usr/lib/"
 
-chmod +x "$LINUXDEPLOY" "$PLUGIN_GTK_SH"
-mv "$PLUGIN_GTK_SH" "$PLUGIN_GTK_BIN"
+  for asset in tera-launcher.desktop tera-launcher.png AppRun; do
+    cp "$SRC_DIR/appimage/assets/$asset" "$APPDIR/$asset"
+    [[ "$asset" == "AppRun" ]] && chmod +x "$APPDIR/AppRun"
+  done
+}
 
+#========================================
+# Download common tools
+#========================================
+download_tools() {
+  log "Downloading Winetricks"
+  wget -q -O winetricks \
+    https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
+  chmod +x winetricks
+  mv winetricks "$APPDIR/usr/bin/"
 
-echo "Packaging AppImage (with GTK plugin)"
-./"$LINUXDEPLOY" --appimage-extract
+  log "Fetching linuxdeploy and GTK plugin"
+  wget -q -O "$LINUXDEPLOY" \
+    "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/$LINUXDEPLOY"
+  wget -q -O "$PLUGIN_GTK_SH" \
+    "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh"
+  chmod +x "$LINUXDEPLOY" "$PLUGIN_GTK_SH"
+  mv "$PLUGIN_GTK_SH" "$PLUGIN_GTK_BIN"
+}
 
-# Specify target binaries to fetch dependent libraries for.
-declare -a E_ARGS
-E_ARGS+=( -e "$APPDIR/usr/bin/tera_launcher_for_linux" )
-while IFS= read -r exe; do
-  [[ -n "$exe" ]] && E_ARGS+=( -e "$exe" )
-done < <(
-  find "$APPDIR/usr/bin" -maxdepth 1 -type f -executable -name 'easylzma*'
-)
-echo "Will bundle executables:"
-printf "  %s\n" "${E_ARGS[@]}"
+#========================================
+# Package initial AppImage
+#========================================
+package_appimage() {
+  log "Packaging initial AppImage"
+  ./$LINUXDEPLOY --appimage-extract
 
-# Perform first phase of AppImage setup.
-./squashfs-root/AppRun \
-    --appdir "$APPDIR" \
-    -d "$APPDIR/tera-launcher.desktop" \
-    -i "$APPDIR/tera-launcher.png" \
-    "${E_ARGS[@]}" \
-    --plugin gtk \
-    --output appimage
+  mapfile -t execs < <(
+    find "$APPDIR/usr/bin" -maxdepth 1 -type f -executable \
+      ! -name "stub_launcher.exe*" ! -name "winetricks" ! -name "7z*"
+  )
 
+  args=(--appdir "$APPDIR" -d "$APPDIR/tera-launcher.desktop"
+        -i "$APPDIR/tera-launcher.png" --plugin gtk --output appimage)
+  for bin in "${execs[@]}"; do
+    args+=( -e "$bin" )
+  done
 
-# Download GE-Proton and then re-package the AppImage with it.
-# This workaround is to avoid having to provide libraries for GE-Proton binaries
-# as they include their own binaries already.
-echo "Downloading GE-Proton: $GE_PROTON_URL"
-wget -q -O "$GE_PROTON_TARBALL" "$GE_PROTON_URL"
+  printf "Will bundle executables: %s\n" "${execs[*]}"
+  ./squashfs-root/AppRun "${args[@]}"
+}
 
-mkdir -p "$APPDIR/usr/lib"
-mkdir -p "$APPDIR/usr/lib/$GE_PROTON_DEST"
-tar -xf "$GE_PROTON_TARBALL" --strip-components=1 -C "$APPDIR/usr/lib/$GE_PROTON_DEST"
-rm "$GE_PROTON_TARBALL"
+#========================================
+# Inject GE-Proton
+#========================================
+inject_ge_proton() {
+  log "Downloading GE-Proton ($GE_PROTON_URL)"
+  wget -q -O "$GE_PROTON_TARBALL" "$GE_PROTON_URL"
 
-APPIMAGE="$(ls ./*-x86_64.AppImage | head -n1)"
-echo "Injecting GE‑Proton into $APPIMAGE"
+  mkdir -p "$APPDIR/usr/lib/$GE_PROTON_DEST"
+  tar -xf "$GE_PROTON_TARBALL" --strip-components=1 -C "$APPDIR/usr/lib/$GE_PROTON_DEST"
+  rm "$GE_PROTON_TARBALL"
 
-# You may notice this ENV get toggled on/off a few times
-# This is a workaround for the absence of FUSE to be able to manipulate
-# the squashfs filesystem without it.
-export APPIMAGE_EXTRACT_AND_RUN=1
-echo "Unpack Phase 1 TERA Launcher AppImage"
-./"$APPIMAGE" --appimage-extract
-unset APPIMAGE_EXTRACT_AND_RUN
+  APPIMAGE_FILE=$(ls ./*-x86_64.AppImage | head -n1)
+  log "Injecting GE-Proton into $APPIMAGE_FILE"
 
-if [[ ! -d squashfs-root ]]; then
-  echo "ERROR: extraction failed; 'squashfs-root' not found" >&2
-  exit 1
-fi
+  export APPIMAGE_EXTRACT_AND_RUN=1
+  ./"$APPIMAGE_FILE" --appimage-extract
+  unset APPIMAGE_EXTRACT_AND_RUN
 
-echo "Copying GE‑Proton files"
-cp -r "$APPDIR/usr/lib/ge-proton" squashfs-root/usr/lib/
+  [[ -d squashfs-root ]] || error "Extraction failed"
+  cp -r "$APPDIR/usr/lib/$GE_PROTON_DEST" squashfs-root/usr/lib/
 
-echo "Fetching appimagetool"
-APPIMAGETOOL="appimagetool-x86_64.AppImage"
-wget -q -O "$APPIMAGETOOL" \
-  "https://github.com/AppImage/AppImageKit/releases/download/continuous/$APPIMAGETOOL"
-chmod +x "$APPIMAGETOOL"
+  log "Fetching appimagetool"
+  wget -q -O "$APPIMAGETOOL" \
+    "https://github.com/AppImage/AppImageKit/releases/download/continuous/$APPIMAGETOOL"
+  chmod +x "$APPIMAGETOOL"
 
-# Re‑pack the AppImage
-echo "Re‑packing AppImage (injecting GE‑Proton)"
-export APPIMAGE_EXTRACT_AND_RUN=1
-export ARCH=x86_64
-./"$APPIMAGETOOL" squashfs-root "$APPIMAGE"
-unset APPIMAGE_EXTRACT_AND_RUN ARCH
+  log "Re-packing AppImage"
+  export APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64
+  ./$APPIMAGETOOL squashfs-root "$APPIMAGE_FILE"
+  unset APPIMAGE_EXTRACT_AND_RUN ARCH
 
-echo "Done, AppImage Here: $APPIMAGE"
+  mv "$APPIMAGE_FILE" "$SRC_DIR/"
+  log "Done: $APPIMAGE_FILE moved to $SRC_DIR"
+}
+
+#========================================
+# Main
+#========================================
+main() {
+  log "Settings: CLONE_REPO=$CLONE_REPO, BRANCH=$BRANCH, GE_PROTON_VERSION=$GE_PROTON_VERSION"
+  prepare_source
+  build_launcher
+  prepare_appdir
+  copy_binaries_and_assets
+  download_tools
+  package_appimage
+  inject_ge_proton
+}
+
+main "$@"

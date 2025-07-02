@@ -1489,7 +1489,8 @@ static gchar **build_launch_argv(const gchar *exe_path,
 /**
  * @brief Prepare wineprefix if it does not exist and install dependencies.
  *
- * @param envp               Environment variables to use when launching winetricks
+ * @param envp               Environment variables to use when launching
+ * winetricks
  */
 static bool prepare_wineprefix(gchar **envp) {
   gchar *winetricks = g_find_program_in_path("winetricks");
@@ -1509,9 +1510,9 @@ static bool prepare_wineprefix(gchar **envp) {
 
   GError *err = nullptr;
   const gboolean ok =
-    g_spawn_sync(nullptr, argv_complete, envp,
-    G_SPAWN_STDERR_TO_DEV_NULL | G_SPAWN_STDOUT_TO_DEV_NULL,
-    nullptr, nullptr, nullptr, nullptr, nullptr, &err);
+      g_spawn_sync(nullptr, argv_complete, envp,
+                   G_SPAWN_STDERR_TO_DEV_NULL | G_SPAWN_STDOUT_TO_DEV_NULL,
+                   nullptr, nullptr, nullptr, nullptr, nullptr, &err);
 
   if (!ok) {
     g_warning("Winetricks failed: %s (%i)", err->message, err->code);
@@ -1523,8 +1524,6 @@ static bool prepare_wineprefix(gchar **envp) {
   g_strfreev(argv_complete);
   return true;
 }
-
-
 
 /**
  * @brief Launch a Windows program under Wine in the background.
@@ -1612,8 +1611,8 @@ static gpointer game_launcher_thread(gpointer data) {
   gchar *cwd_g = g_get_current_dir();
   gchar *stub_path = nullptr;
   if (appimage_mode)
-    stub_path =
-        g_build_filename(appdir_global, "usr/bin", "stub_launcher.exe", nullptr);
+    stub_path = g_build_filename(appdir_global, "usr/bin", "stub_launcher.exe",
+                                 nullptr);
   else
     stub_path = g_build_filename(cwd_g, "stub_launcher.exe", nullptr);
 
@@ -1653,15 +1652,26 @@ static gpointer game_launcher_thread(gpointer data) {
   GError *err = nullptr;
   gint status = 0;
 
-  gtk_progress_bar_set_text(GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),"Preparing Environment");
-  gtk_progress_bar_set_text(GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), "Might take awhile the first time");
-  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 0.5);
+  gtk_progress_bar_set_text(
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),
+      "Preparing Environment");
+  gtk_progress_bar_set_text(
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar),
+      "Might take awhile the first time");
+  gtk_progress_bar_set_fraction(
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 0.5);
 
   if (!prepare_wineprefix(envp)) {
-    gtk_progress_bar_set_text(GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),"Error Launching Game");
-    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 0.0);
-    gtk_progress_bar_set_text(GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), "Failed to Prepare Environment");
-    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), 1.0);
+    gtk_progress_bar_set_text(
+        GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),
+        "Error Launching Game");
+    gtk_progress_bar_set_fraction(
+        GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 0.0);
+    gtk_progress_bar_set_text(
+        GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar),
+        "Failed to Prepare Environment");
+    gtk_progress_bar_set_fraction(
+        GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), 1.0);
 
     game_exit_callback(status, launch_data->ld);
 
@@ -1674,10 +1684,15 @@ static gpointer game_launcher_thread(gpointer data) {
     return nullptr;
   }
 
-  gtk_progress_bar_set_text(GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),"Launching the Game");
-  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 1.0);
-  gtk_progress_bar_set_text(GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), "");
-  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), 1.0);
+  gtk_progress_bar_set_text(
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),
+      "Launching the Game");
+  gtk_progress_bar_set_fraction(
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 1.0);
+  gtk_progress_bar_set_text(
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), "");
+  gtk_progress_bar_set_fraction(
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), 1.0);
   gtk_window_minimize(GTK_WINDOW(launch_data->ld->window));
 
   const gboolean ok =
@@ -1685,13 +1700,23 @@ static gpointer game_launcher_thread(gpointer data) {
                    nullptr, nullptr, &status, &err);
 
   if (!ok) {
-    gtk_progress_bar_set_text(GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),"Error Launching Game");
-    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 1.0);
-    gtk_progress_bar_set_text(GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), err->message);
-    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), 0.0);
+    gtk_progress_bar_set_text(
+        GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),
+        "Error Launching Game");
+    gtk_progress_bar_set_fraction(
+        GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 1.0);
+    gtk_progress_bar_set_text(
+        GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar),
+        err->message);
+    gtk_progress_bar_set_fraction(
+        GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), 0.0);
   } else {
-    gtk_progress_bar_set_text(GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), "Game Exited");
-    gtk_progress_bar_set_text(GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), "Game Ready to Launch");
+    gtk_progress_bar_set_text(
+        GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),
+        "Game Exited");
+    gtk_progress_bar_set_text(
+        GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar),
+        "Game Ready to Launch");
   }
 
   game_exit_callback(status, launch_data->ld);
@@ -1724,7 +1749,8 @@ static void on_play_clicked(GtkButton *btn, gpointer user_data) {
   gtk_widget_set_sensitive(GTK_WIDGET(ld->window), FALSE);
 
   // Pulse download progress bar to show launcher is doing work
-  gtk_progress_bar_set_pulse_step(GTK_PROGRESS_BAR(ld->update_repair_download_bar), 0.1);
+  gtk_progress_bar_set_pulse_step(
+      GTK_PROGRESS_BAR(ld->update_repair_download_bar), 0.1);
   gtk_progress_bar_pulse(GTK_PROGRESS_BAR(ld->update_repair_download_bar));
 
   // Allocate and populate GameLaunchData

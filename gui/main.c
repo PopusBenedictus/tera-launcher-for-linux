@@ -1011,12 +1011,14 @@ static gboolean launcher_init_config(GtkApplication *app) {
   const gchar *appdir = g_getenv("APPDIR");
   size_t len;
   if (appimage_mode) {
-    if (!str_copy_formatted(appdir_global, &len, FIXED_STRING_FIELD_SZ, "%s", appdir)) {
-      g_warning("AppImage mode, but unable to copy AppDir path of %zu bytes -- path too long!", len);
+    if (!str_copy_formatted(appdir_global, &len, FIXED_STRING_FIELD_SZ, "%s",
+                            appdir)) {
+      g_warning("AppImage mode, but unable to copy AppDir path of %zu bytes -- "
+                "path too long!",
+                len);
       return false;
     }
   }
-
 
   parse_and_copy_string(app, launcher_config_json, "public_patch_url",
                         patch_url_global);
@@ -1067,9 +1069,12 @@ static gboolean download_progress_bar_callback(gpointer data) {
     gtk_progress_bar_set_fraction(pb, td->current_download_progress);
   }
 
-  GdkSurface *surface = gtk_native_get_surface(gtk_widget_get_native(GTK_WIDGET(td->ld->window)));
-  const GdkToplevelState toplevel_state = gdk_toplevel_get_state(GDK_TOPLEVEL(surface));
-  if (td->window_minimized && !(toplevel_state & GDK_TOPLEVEL_STATE_MINIMIZED)) {
+  GdkSurface *surface =
+      gtk_native_get_surface(gtk_widget_get_native(GTK_WIDGET(td->ld->window)));
+  const GdkToplevelState toplevel_state =
+      gdk_toplevel_get_state(GDK_TOPLEVEL(surface));
+  if (td->window_minimized &&
+      !(toplevel_state & GDK_TOPLEVEL_STATE_MINIMIZED)) {
     gtk_window_minimize(GTK_WINDOW(td->ld->window));
   } else if (!td->window_minimized) {
     if (td->window_sensitive) {
@@ -1298,10 +1303,16 @@ static gboolean restore_launcher_callback(gpointer user_data) {
   gtk_widget_set_sensitive(cb_data->ld->window, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->play_btn, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->option_menu_btn, TRUE);
-  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(cb_data->ld->update_repair_progress_bar), 1.0);
-  gtk_progress_bar_set_text(GTK_PROGRESS_BAR(cb_data->ld->update_repair_progress_bar), "Failed to Launch Game");
-  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(cb_data->ld->update_repair_download_bar), 0.0);
-  gtk_progress_bar_set_text(GTK_PROGRESS_BAR(cb_data->ld->update_repair_download_bar), "Memory Allocation Failure");
+  gtk_progress_bar_set_fraction(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_progress_bar), 1.0);
+  gtk_progress_bar_set_text(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_progress_bar),
+      "Failed to Launch Game");
+  gtk_progress_bar_set_fraction(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_download_bar), 0.0);
+  gtk_progress_bar_set_text(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_download_bar),
+      "Memory Allocation Failure");
   gtk_window_present(GTK_WINDOW(cb_data->ld->window));
 
   free(cb_data);
@@ -1525,10 +1536,12 @@ static gchar **build_launch_argv(const gchar *exe_path,
 /**
  * @brief Callback used to handle exit status of wineprefix health check.
  * @param pid Thread PID for the wineprefix health check thread.
- * @param wait_status A GTK-specific wait status to be checked for abnormal termination.
+ * @param wait_status A GTK-specific wait status to be checked for abnormal
+ * termination.
  * @param user_data Our update thread data struct.
  */
-static void game_wine_env_thread_watcher(GPid pid, gint wait_status, gpointer user_data) {
+static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
+                                         gpointer user_data) {
   UpdateThreadData *td = user_data;
   td->wine_env_setup_success = g_spawn_check_wait_status(wait_status, nullptr);
   td->wine_env_setup_done = true;
@@ -1539,7 +1552,8 @@ static void game_wine_env_thread_watcher(GPid pid, gint wait_status, gpointer us
  * @brief Prepare wineprefix if it does not exist and install dependencies.
  *
  * @param envp Environment variables to use when launching winetricks.
- * @param thread_data Update thread struct for GUI updates while performing the task.
+ * @param thread_data Update thread struct for GUI updates while performing the
+ * task.
  */
 static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
   gchar *winetricks = g_find_program_in_path("winetricks");
@@ -1560,10 +1574,11 @@ static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
   GError *err = nullptr;
   GPid child_pid = 0;
   const gboolean ok =
-      g_spawn_async(nullptr, argv_complete, envp, G_SPAWN_DO_NOT_REAP_CHILD, nullptr,
-                    nullptr, &child_pid, &err);
+      g_spawn_async(nullptr, argv_complete, envp, G_SPAWN_DO_NOT_REAP_CHILD,
+                    nullptr, nullptr, &child_pid, &err);
 
-  g_child_watch_add(child_pid, (GChildWatchFunc)game_wine_env_thread_watcher, thread_data);
+  g_child_watch_add(child_pid, (GChildWatchFunc)game_wine_env_thread_watcher,
+                    thread_data);
 
   while (!thread_data->wine_env_setup_done) {
     thread_data->current_progress = 0.5;
@@ -1572,9 +1587,9 @@ static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
     thread_data->current_download_message = "Might take awhile the first time";
     thread_data->enable_pulse = true;
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_usleep(500000);
   }
 
@@ -1648,9 +1663,8 @@ static gpointer game_launcher_thread(gpointer data) {
   if (!launch_data)
     return nullptr;
 
-
-  // Ideally we marshall UI changes, rather than make them directly from this thread.
-  // But if we cannot do that, we'll just have to go for it and pray.
+  // Ideally we marshall UI changes, rather than make them directly from this
+  // thread. But if we cannot do that, we'll just have to go for it and pray.
   UpdateThreadData *thread_data = malloc(sizeof(UpdateThreadData));
   if (!thread_data) {
     game_exit_callback(1, launch_data->ld);
@@ -1664,8 +1678,10 @@ static gpointer game_launcher_thread(gpointer data) {
   thread_data->window_minimized = false;
   thread_data->wine_env_setup_done = false;
   thread_data->wine_env_setup_success = false;
-  thread_data->update_data.download_progress_bar = GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar);
-  thread_data->update_data.progress_bar = GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar);
+  thread_data->update_data.download_progress_bar =
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar);
+  thread_data->update_data.progress_bar =
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar);
 
   char cwd[FIXED_STRING_FIELD_SZ];
   if (!getcwd(cwd, sizeof cwd)) {
@@ -1673,13 +1689,14 @@ static gpointer game_launcher_thread(gpointer data) {
     thread_data->current_progress = 1.0;
     thread_data->current_message = "Failed to Launch Game";
     thread_data->current_download_progress = 0.0;
-    thread_data->current_download_message = "Failed to verify current working directory";
+    thread_data->current_download_message =
+        "Failed to verify current working directory";
     thread_data->window_minimized = false;
     thread_data->window_sensitive = true;
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
@@ -1702,11 +1719,12 @@ static gpointer game_launcher_thread(gpointer data) {
     thread_data->current_progress = 1.0;
     thread_data->current_message = "Failed to Launch Game";
     thread_data->current_download_progress = 0.0;
-    thread_data->current_download_message = "Memory allocation error preparing game path for Wine";
+    thread_data->current_download_message =
+        "Memory allocation error preparing game path for Wine";
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     thread_data->window_minimized = false;
     thread_data->window_sensitive = true;
     ut_data_unref(thread_data);
@@ -1732,9 +1750,9 @@ static gpointer game_launcher_thread(gpointer data) {
     thread_data->window_minimized = false;
     thread_data->window_sensitive = true;
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_free(stub_path);
     g_free(cwd_g);
     ut_data_unref(thread_data);
@@ -1749,14 +1767,15 @@ static gpointer game_launcher_thread(gpointer data) {
     thread_data->current_progress = 1.0;
     thread_data->current_message = "Failed to Launch Game";
     thread_data->current_download_progress = 0.0;
-    thread_data->current_download_message = "Failed to prepare Wine environment variables";
+    thread_data->current_download_message =
+        "Failed to prepare Wine environment variables";
     thread_data->enable_pulse = false;
     thread_data->window_minimized = false;
     thread_data->window_sensitive = true;
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_free(stub_path);
     g_free(cwd_g);
     ut_data_unref(thread_data);
@@ -1785,14 +1804,15 @@ static gpointer game_launcher_thread(gpointer data) {
     thread_data->current_progress = 0.0;
     thread_data->current_message = "Failed to Launch Game";
     thread_data->current_download_progress = 1.0;
-    thread_data->current_download_message = "Failed to Prepare Game Dependencies";
+    thread_data->current_download_message =
+        "Failed to Prepare Game Dependencies";
     thread_data->enable_pulse = false;
     thread_data->window_minimized = false;
     thread_data->window_sensitive = true;
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
 
     g_strfreev(argv_final);
     g_strfreev(envp);
@@ -1811,13 +1831,13 @@ static gpointer game_launcher_thread(gpointer data) {
   thread_data->enable_pulse = false;
   thread_data->window_minimized = true;
   g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
-              ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                  ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
   g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
-              ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                  ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
 
   const gboolean ok =
-    g_spawn_sync(cwd_g, argv_final, envp, G_SPAWN_DEFAULT, nullptr, nullptr,
-                 nullptr, nullptr, &status, &err);
+      g_spawn_sync(cwd_g, argv_final, envp, G_SPAWN_DEFAULT, nullptr, nullptr,
+                   nullptr, nullptr, &status, &err);
 
   thread_data->window_minimized = false;
   thread_data->window_sensitive = true;
@@ -1825,12 +1845,13 @@ static gpointer game_launcher_thread(gpointer data) {
     thread_data->current_progress = 1.0;
     thread_data->current_message = "Failed to Launch Game";
     thread_data->current_download_progress = 0.0;
-    thread_data->current_download_message = "Runtime Error Starting the Game Client";
+    thread_data->current_download_message =
+        "Runtime Error Starting the Game Client";
     thread_data->enable_pulse = false;
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
   } else {
     thread_data->current_progress = 1.0;
     thread_data->current_message = "Game Exited";
@@ -1838,9 +1859,9 @@ static gpointer game_launcher_thread(gpointer data) {
     thread_data->current_download_message = "Game Ready to Launch";
     thread_data->enable_pulse = false;
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
-                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
   }
 
   g_strfreev(argv_final);
@@ -2158,7 +2179,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
     return;
   }
   if (use_tera_toolbox && strlen(tera_toolbox_path_global) > 0)
-    launch_windows_program_async(toolbox_exe, nullptr, tera_toolbox_path_global);
+    launch_windows_program_async(toolbox_exe, nullptr,
+                                 tera_toolbox_path_global);
 
   GError *error = nullptr;
   style_data_gbytes =

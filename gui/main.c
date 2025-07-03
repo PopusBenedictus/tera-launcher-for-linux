@@ -2157,8 +2157,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
     g_warning("Failed to build Toolbox path (need %zu bytes)", needed_size);
     return;
   }
-
-  launch_windows_program_async(toolbox_exe, nullptr, tera_toolbox_path_global);
+  if (use_tera_toolbox && strlen(tera_toolbox_path_global) > 0)
+    launch_windows_program_async(toolbox_exe, nullptr, tera_toolbox_path_global);
 
   GError *error = nullptr;
   style_data_gbytes =

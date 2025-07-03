@@ -1060,7 +1060,27 @@ static gboolean progress_bar_callback(gpointer data) {
 static gboolean download_progress_bar_callback(gpointer data) {
   const UpdateThreadData *td = data;
   GtkProgressBar *pb = td->update_data.download_progress_bar;
-  gtk_progress_bar_set_fraction(pb, td->current_download_progress);
+  if (td->enable_pulse) {
+    gtk_progress_bar_set_pulse_step(pb, 0.2);
+    gtk_progress_bar_pulse(pb);
+  } else {
+    gtk_progress_bar_set_fraction(pb, td->current_download_progress);
+  }
+
+  GdkSurface *surface = gtk_native_get_surface(gtk_widget_get_native(GTK_WIDGET(td->ld->window)));
+  const GdkToplevelState toplevel_state = gdk_toplevel_get_state(GDK_TOPLEVEL(surface));
+  if (td->window_minimized && !(toplevel_state & GDK_TOPLEVEL_STATE_MINIMIZED)) {
+    gtk_window_minimize(GTK_WINDOW(td->ld->window));
+  } else if (!td->window_minimized) {
+    if (td->window_sensitive) {
+      gtk_widget_set_sensitive(td->ld->window, TRUE);
+      gtk_widget_set_sensitive(td->ld->play_btn, TRUE);
+      gtk_widget_set_sensitive(td->ld->option_menu_btn, TRUE);
+    }
+    if (toplevel_state & GDK_TOPLEVEL_STATE_MINIMIZED)
+      gtk_window_present(GTK_WINDOW(td->ld->window));
+  }
+
   gtk_progress_bar_set_text(pb, td->current_download_message);
   return FALSE;
 }

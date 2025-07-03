@@ -57,6 +57,11 @@ typedef struct {
   gboolean play_button_enabled;
   gboolean repair_button_enabled;
   gboolean repair_requested;
+  gboolean enable_pulse;
+  gboolean window_minimized;
+  gboolean window_sensitive;
+  gboolean wine_env_setup_done;
+  gboolean wine_env_setup_success;
 } UpdateThreadData;
 
 /**
@@ -66,6 +71,11 @@ struct CurlResponse {
   char *data;
   size_t size;
 };
+
+/**
+ * @brief AppDir path, only used in when AppImage mode is enabled.
+ */
+char appdir_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Game language string from the embedded json resource.
@@ -82,6 +92,24 @@ char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
  * value).
  */
 char wineprefix_default_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Game files folder name from the embedded json resource (default
+ * value).
+ */
+char gameprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Game files folder name from the embedded json resource (default
+ * value).
+ */
+char gameprefix_default_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Config files folder name from the embedded json resource (default
+ * value).
+ */
+char configprefix_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief If specified by the user, a path to a custom build of wine. Unset by
@@ -133,6 +161,14 @@ bool use_gamemoderun = false;
  * support. Turned off by default.
  */
 bool use_gamescope = false;
+
+/**
+ * @brief If set to FALSE, we assume configuration and game files are in the
+ * same directory as the launcher itself. When set to TRUE, configuration is
+ * assumed to be stored where configprefix_global points, and that game files
+ * are not stored in the present working directory of the launcher.
+ */
+bool appimage_mode = false;
 
 /**
  * @brief If set to TRUE, attempt to launch TERA Toolbox before launching the
@@ -226,7 +262,8 @@ static UpdateThreadData *ut_data_ref(UpdateThreadData *td) {
  */
 static void ut_data_unref(UpdateThreadData *td) {
   if (g_atomic_int_dec_and_test(&td->refcount)) {
-    g_free(td->update_data.game_path);
+    if (td->update_data.game_path)
+      g_free(td->update_data.game_path);
     free(td);
   }
 }
@@ -912,6 +949,49 @@ static void parse_and_copy_string(GtkApplication *app,
 }
 
 /**
+ * @brief Parse a string from JSON, make it absolute, validate it, and
+ *        copy into two global buffers.
+ *
+ * @param app            GtkApplication instance (for dialogs).
+ * @param config         The launcher config JSON object.
+ * @param key            The JSON key to fetch (e.g. "wine_prefix_name").
+ * @param out_buf        Buffer to receive the absolute path.
+ * @param out_default    Buffer to receive the same absolute path as a default.
+ */
+static void load_and_validate_path_setting(GtkApplication *app,
+                                           const json_t *config,
+                                           const char *key, char *out_buf,
+                                           char *out_default) {
+  char tmp[FIXED_STRING_FIELD_SZ] = {0};
+  size_t needed;
+
+  parse_and_copy_string(app, config, key, tmp);
+
+  char *abs_val = make_absolute_prefix(tmp);
+  if (!g_path_is_absolute(abs_val) || abs_val[0] == '\0') {
+    show_alert_dialog(
+        gtk_application_get_active_window(app), "Configuration Error",
+        g_strdup_printf("Unable to resolve %s to an absolute path.", key),
+        ALERT_MSG_ERROR);
+    g_error("%s invalid", key);
+  }
+
+  if (!str_copy_formatted(out_buf, &needed, FIXED_STRING_FIELD_SZ, "%s",
+                          abs_val) ||
+      (out_default &&
+       !str_copy_formatted(out_default, &needed, FIXED_STRING_FIELD_SZ, "%s",
+                           abs_val))) {
+    show_alert_dialog(
+        gtk_application_get_active_window(app), "Configuration Error",
+        g_strdup_printf("%s is too long for internal buffer.", key),
+        ALERT_MSG_ERROR);
+    g_error("%s exceeds buffer", key);
+  }
+
+  g_free(abs_val);
+}
+
+/**
  * @brief Load and validate the launcher's configuration from embedded JSON.
  *
  * Reads JSON from /com/tera/launcher/launcher-config.json, populates the global
@@ -927,37 +1007,32 @@ static gboolean launcher_init_config(GtkApplication *app) {
   if (!launcher_config_json)
     return false;
 
+  appimage_mode = g_getenv("APPIMAGE_MODE_ENABLED") != nullptr;
+  const gchar *appdir = g_getenv("APPDIR");
+  size_t len;
+  if (appimage_mode) {
+    if (!str_copy_formatted(appdir_global, &len, FIXED_STRING_FIELD_SZ, "%s",
+                            appdir)) {
+      g_warning("AppImage mode, but unable to copy AppDir path of %zu bytes -- "
+                "path too long!",
+                len);
+      return false;
+    }
+  }
+
   parse_and_copy_string(app, launcher_config_json, "public_patch_url",
                         patch_url_global);
   parse_and_copy_string(app, launcher_config_json, "auth_url", auth_url_global);
   parse_and_copy_string(app, launcher_config_json, "server_list_url",
                         server_list_url_global);
 
-  char tmp_prefix[FIXED_STRING_FIELD_SZ] = {0};
-  parse_and_copy_string(app, launcher_config_json, "wine_prefix_name",
-                        tmp_prefix);
-
-  char *abs_prefix = make_absolute_wineprefix(tmp_prefix);
-  if (!g_path_is_absolute(abs_prefix) || abs_prefix[0] == '\0') {
-    show_alert_dialog(gtk_application_get_active_window(app),
-                      "Configuration Error",
-                      "Unable to resolve wine_prefix_name to an absolute path.",
-                      ALERT_MSG_ERROR);
-    g_error("wine_prefix_name invalid");
-  }
-
-  size_t needed;
-  if (!str_copy_formatted(wineprefix_global, &needed, FIXED_STRING_FIELD_SZ,
-                          "%s", abs_prefix) ||
-      !str_copy_formatted(wineprefix_default_global, &needed,
-                          FIXED_STRING_FIELD_SZ, "%s", abs_prefix)) {
-    show_alert_dialog(
-        gtk_application_get_active_window(app), "Configuration Error",
-        "Wine prefix path is too long for internal buffer.", ALERT_MSG_ERROR);
-    g_error("wine_prefix_name exceeds buffer");
-  }
-  g_free(abs_prefix);
-
+  load_and_validate_path_setting(app, launcher_config_json, "wine_prefix_name",
+                                 wineprefix_global, wineprefix_default_global);
+  load_and_validate_path_setting(app, launcher_config_json, "game_prefix_name",
+                                 gameprefix_global, gameprefix_default_global);
+  load_and_validate_path_setting(app, launcher_config_json,
+                                 "config_prefix_name", configprefix_global,
+                                 nullptr);
   parse_and_copy_string(app, launcher_config_json, "game_lang",
                         game_lang_global);
   parse_and_copy_string(app, launcher_config_json, "service_name",
@@ -987,7 +1062,30 @@ static gboolean progress_bar_callback(gpointer data) {
 static gboolean download_progress_bar_callback(gpointer data) {
   const UpdateThreadData *td = data;
   GtkProgressBar *pb = td->update_data.download_progress_bar;
-  gtk_progress_bar_set_fraction(pb, td->current_download_progress);
+  if (td->enable_pulse) {
+    gtk_progress_bar_set_pulse_step(pb, 0.2);
+    gtk_progress_bar_pulse(pb);
+  } else {
+    gtk_progress_bar_set_fraction(pb, td->current_download_progress);
+  }
+
+  GdkSurface *surface =
+      gtk_native_get_surface(gtk_widget_get_native(GTK_WIDGET(td->ld->window)));
+  const GdkToplevelState toplevel_state =
+      gdk_toplevel_get_state(GDK_TOPLEVEL(surface));
+  if (td->window_minimized &&
+      !(toplevel_state & GDK_TOPLEVEL_STATE_MINIMIZED)) {
+    gtk_window_minimize(GTK_WINDOW(td->ld->window));
+  } else if (!td->window_minimized) {
+    if (td->window_sensitive) {
+      gtk_widget_set_sensitive(td->ld->window, TRUE);
+      gtk_widget_set_sensitive(td->ld->play_btn, TRUE);
+      gtk_widget_set_sensitive(td->ld->option_menu_btn, TRUE);
+    }
+    if (toplevel_state & GDK_TOPLEVEL_STATE_MINIMIZED)
+      gtk_window_present(GTK_WINDOW(td->ld->window));
+  }
+
   gtk_progress_bar_set_text(pb, td->current_download_message);
   return FALSE;
 }
@@ -1154,7 +1252,12 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
   // Share patch URL and game path in UpdateData for update functions to do
   // their thing.
   thread_data->update_data.public_patch_url = patch_url_global;
-  thread_data->update_data.game_path = g_get_current_dir();
+
+  if (appimage_mode) {
+    thread_data->update_data.game_path = g_strdup(gameprefix_global);
+  } else {
+    thread_data->update_data.game_path = g_get_current_dir();
+  }
 
   // Populate UpdateThreadData
   thread_data->ld = ld;
@@ -1200,6 +1303,16 @@ static gboolean restore_launcher_callback(gpointer user_data) {
   gtk_widget_set_sensitive(cb_data->ld->window, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->play_btn, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->option_menu_btn, TRUE);
+  gtk_progress_bar_set_fraction(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_progress_bar), 1.0);
+  gtk_progress_bar_set_text(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_progress_bar),
+      "Failed to Launch Game");
+  gtk_progress_bar_set_fraction(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_download_bar), 0.0);
+  gtk_progress_bar_set_text(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_download_bar),
+      "Memory Allocation Failure");
   gtk_window_present(GTK_WINDOW(cb_data->ld->window));
 
   free(cb_data);
@@ -1286,6 +1399,8 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
 
     GString *new_path = g_string_new(wine_bin_path);
     g_string_append_c(new_path, G_SEARCHPATH_SEPARATOR);
+    g_string_append_printf(new_path, "%s/usr/bin", appdir_global);
+    g_string_append_c(new_path, G_SEARCHPATH_SEPARATOR);
     g_string_append(new_path,
                     old_path ? old_path : "/usr/local/bin:/usr/bin:/bin");
     envp = g_environ_setenv(envp, "PATH", new_path->str, true);
@@ -1306,6 +1421,8 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
     gchar *server =
         g_build_filename(custom_wine_dir, "bin", "wineserver", nullptr);
     envp = g_environ_setenv(envp, "WINELOADER", loader, true);
+    /* WINE env is used by winetricks, WINELOADER is for the stub launcher */
+    envp = g_environ_setenv(envp, "WINE", loader, true);
     envp = g_environ_setenv(envp, "WINESERVER", server, true);
 
     g_string_free(new_path, TRUE);
@@ -1328,6 +1445,7 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
     g_free(resolved_wine);
 
   envp = g_environ_setenv(envp, "WINEDEBUG", "-all", true);
+  envp = g_environ_setenv(envp, "WINEARCH", "win64", true);
   envp = g_environ_setenv(envp, "DXVK_LOG_LEVEL", "none", true);
 
   if (enable_wsi_fix) {
@@ -1416,6 +1534,77 @@ static gchar **build_launch_argv(const gchar *exe_path,
 }
 
 /**
+ * @brief Callback used to handle exit status of wineprefix health check.
+ * @param pid Thread PID for the wineprefix health check thread.
+ * @param wait_status A GTK-specific wait status to be checked for abnormal
+ * termination.
+ * @param user_data Our update thread data struct.
+ */
+static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
+                                         gpointer user_data) {
+  UpdateThreadData *td = user_data;
+  td->wine_env_setup_success = g_spawn_check_wait_status(wait_status, nullptr);
+  td->wine_env_setup_done = true;
+  g_spawn_close_pid(pid);
+}
+
+/**
+ * @brief Prepare wineprefix if it does not exist and install dependencies.
+ *
+ * @param envp Environment variables to use when launching winetricks.
+ * @param thread_data Update thread struct for GUI updates while performing the
+ * task.
+ */
+static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
+  gchar *winetricks = g_find_program_in_path("winetricks");
+  if (!winetricks)
+    return false;
+
+  GPtrArray *argv = g_ptr_array_new();
+  g_ptr_array_add(argv, g_strdup(winetricks));
+  g_ptr_array_add(argv, g_strdup("-q"));
+  g_ptr_array_add(argv, g_strdup("vkd3d"));
+  g_ptr_array_add(argv, g_strdup("corefonts"));
+  g_ptr_array_add(argv, g_strdup("vcrun2022"));
+  g_ptr_array_add(argv, g_strdup("ucrtbase2019"));
+  g_ptr_array_add(argv, g_strdup("dxvk"));
+  g_ptr_array_add(argv, nullptr);
+  const auto argv_complete = (gchar **)g_ptr_array_free(argv, false);
+
+  GError *err = nullptr;
+  GPid child_pid = 0;
+  const gboolean ok =
+      g_spawn_async(nullptr, argv_complete, envp, G_SPAWN_DO_NOT_REAP_CHILD,
+                    nullptr, nullptr, &child_pid, &err);
+
+  g_child_watch_add(child_pid, (GChildWatchFunc)game_wine_env_thread_watcher,
+                    thread_data);
+
+  while (!thread_data->wine_env_setup_done) {
+    thread_data->current_progress = 0.5;
+    thread_data->current_message = "Preparing Environment";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Might take awhile the first time";
+    thread_data->enable_pulse = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_usleep(500000);
+  }
+
+  if (!ok) {
+    g_warning("Winetricks failed: %s (%i)", err->message, err->code);
+    g_error_free(err);
+    g_strfreev(argv_complete);
+    return false;
+  }
+
+  g_strfreev(argv_complete);
+  return true;
+}
+
+/**
  * @brief Launch a Windows program under Wine in the background.
  *
  * @param exe_path           Path to the *.exe* you want to run.
@@ -1474,10 +1663,41 @@ static gpointer game_launcher_thread(gpointer data) {
   if (!launch_data)
     return nullptr;
 
+  // Ideally we marshall UI changes, rather than make them directly from this
+  // thread. But if we cannot do that, we'll just have to go for it and pray.
+  UpdateThreadData *thread_data = malloc(sizeof(UpdateThreadData));
+  if (!thread_data) {
+    game_exit_callback(1, launch_data->ld);
+    return nullptr;
+  }
+
+  memset(thread_data, 0, sizeof(UpdateThreadData));
+  thread_data = ut_data_ref(thread_data);
+  thread_data->ld = launch_data->ld;
+  thread_data->enable_pulse = false;
+  thread_data->window_minimized = false;
+  thread_data->wine_env_setup_done = false;
+  thread_data->wine_env_setup_success = false;
+  thread_data->update_data.download_progress_bar =
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar);
+  thread_data->update_data.progress_bar =
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar);
+
   char cwd[FIXED_STRING_FIELD_SZ];
   if (!getcwd(cwd, sizeof cwd)) {
     g_warning("Failed to getcwd()");
-    gtk_widget_set_sensitive(GTK_WIDGET(launch_data->ld->play_btn), TRUE);
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message =
+        "Failed to verify current working directory";
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
   }
@@ -1486,20 +1706,56 @@ static gpointer game_launcher_thread(gpointer data) {
       *p = '\\';
 
   char game_path[FIXED_STRING_FIELD_SZ];
+  char *game_base;
   size_t need;
+  if (appimage_mode) {
+    game_base = gameprefix_global;
+  } else {
+    game_base = cwd;
+  }
   if (!str_copy_formatted(game_path, &need, sizeof game_path,
-                          "Z:%s\\Binaries\\TERA.exe", cwd)) {
-    g_error("Path buffer too small; need %zu bytes", need);
+                          "Z:%s\\Binaries\\TERA.exe", game_base)) {
+    g_warning("Path buffer too small; need %zu bytes", need);
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message =
+        "Memory allocation error preparing game path for Wine";
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    ut_data_unref(thread_data);
+    free(launch_data);
+    return nullptr;
   }
 
   gchar *cwd_g = g_get_current_dir();
-  gchar *stub_path = g_build_filename(cwd_g, "stub_launcher.exe", NULL);
+  gchar *stub_path = nullptr;
+  if (appimage_mode)
+    stub_path = g_build_filename(appdir_global, "usr/bin", "stub_launcher.exe",
+                                 nullptr);
+  else
+    stub_path = g_build_filename(cwd_g, "stub_launcher.exe", nullptr);
 
   if (!g_file_test(stub_path, G_FILE_TEST_EXISTS)) {
     g_message("stub_launcher.exe not found: %s", stub_path);
-    game_exit_callback(1, launch_data->ld); /* custom callback */
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Stub launcher not found";
+    thread_data->enable_pulse = false;
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_free(stub_path);
     g_free(cwd_g);
+    ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
   }
@@ -1508,8 +1764,21 @@ static gpointer game_launcher_thread(gpointer data) {
   gchar **envp = build_wine_environment(wine_base_dir_global, wineprefix_global,
                                         use_gamescope, &wine_bin);
   if (!envp) {
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message =
+        "Failed to prepare Wine environment variables";
+    thread_data->enable_pulse = false;
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_free(stub_path);
     g_free(cwd_g);
+    ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
   }
@@ -1530,22 +1799,77 @@ static gpointer game_launcher_thread(gpointer data) {
 
   GError *err = nullptr;
   gint status = 0;
+
+  if (!prepare_wineprefix(envp, thread_data)) {
+    thread_data->current_progress = 0.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 1.0;
+    thread_data->current_download_message =
+        "Failed to Prepare Game Dependencies";
+    thread_data->enable_pulse = false;
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+
+    g_strfreev(argv_final);
+    g_strfreev(envp);
+    g_free(wine_bin);
+    g_free(stub_path);
+    g_free(cwd_g);
+    ut_data_unref(thread_data);
+    free(launch_data);
+    return nullptr;
+  }
+
+  thread_data->current_progress = 1.0;
+  thread_data->current_message = "Launching the Game";
+  thread_data->current_download_progress = 1.0;
+  thread_data->current_download_message = "Have Fun :)";
+  thread_data->enable_pulse = false;
+  thread_data->window_minimized = true;
+  g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                  ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+  g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                  ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+
   const gboolean ok =
       g_spawn_sync(cwd_g, argv_final, envp, G_SPAWN_DEFAULT, nullptr, nullptr,
                    nullptr, nullptr, &status, &err);
 
+  thread_data->window_minimized = false;
+  thread_data->window_sensitive = true;
   if (!ok) {
-    g_warning("g_spawn_sync() failed: %s", err->message);
-    g_error_free(err);
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message =
+        "Runtime Error Starting the Game Client";
+    thread_data->enable_pulse = false;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+  } else {
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Game Exited";
+    thread_data->current_download_progress = 1.0;
+    thread_data->current_download_message = "Game Ready to Launch";
+    thread_data->enable_pulse = false;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
   }
-
-  game_exit_callback(status, launch_data->ld);
 
   g_strfreev(argv_final);
   g_strfreev(envp);
   g_free(wine_bin);
   g_free(stub_path);
   g_free(cwd_g);
+  ut_data_unref(thread_data);
   free(launch_data);
 
   return nullptr;
@@ -1565,9 +1889,13 @@ static void on_play_clicked(GtkButton *btn, gpointer user_data) {
   // Disable the play button to prevent multiple clicks
   gtk_widget_set_sensitive(ld->play_btn, FALSE);
 
-  // Minimize the launcher window
-  gtk_window_minimize(GTK_WINDOW(ld->window));
+  // Block inputs
   gtk_widget_set_sensitive(GTK_WIDGET(ld->window), FALSE);
+
+  // Pulse download progress bar to show launcher is doing work
+  gtk_progress_bar_set_pulse_step(
+      GTK_PROGRESS_BAR(ld->update_repair_download_bar), 0.1);
+  gtk_progress_bar_pulse(GTK_PROGRESS_BAR(ld->update_repair_download_bar));
 
   // Allocate and populate GameLaunchData
   GameLaunchData *launch_data = malloc(sizeof(GameLaunchData));
@@ -1815,7 +2143,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     use_gamescope = false;
   }
 
-  if (!validate_wineprefix_name(wineprefix_global)) {
+  if (!validate_prefix_name(wineprefix_global)) {
     if (strcmp(wineprefix_global, wineprefix_default_global) == 0) {
       g_error("Invalid wineprefix, and the global wineprefix value matches "
               "invalid. Cannot continue.");
@@ -1850,8 +2178,9 @@ static void activate(GtkApplication *app, gpointer user_data) {
     g_warning("Failed to build Toolbox path (need %zu bytes)", needed_size);
     return;
   }
-
-  launch_windows_program_async(toolbox_exe, nullptr, tera_toolbox_path_global);
+  if (use_tera_toolbox && strlen(tera_toolbox_path_global) > 0)
+    launch_windows_program_async(toolbox_exe, nullptr,
+                                 tera_toolbox_path_global);
 
   GError *error = nullptr;
   style_data_gbytes =

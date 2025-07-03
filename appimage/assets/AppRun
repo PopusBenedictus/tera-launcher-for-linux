@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# Allow app to operate detached from the game directory.
+export APPIMAGE_MODE_ENABLED=1
+exec "$APPDIR/usr/bin/tera_launcher_for_linux" "$@"

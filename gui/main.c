@@ -1009,8 +1009,14 @@ static gboolean launcher_init_config(GtkApplication *app) {
 
   appimage_mode = g_getenv("APPIMAGE_MODE_ENABLED") != nullptr;
   const gchar *appdir = g_getenv("APPDIR");
-  strcpy(appdir_global, appdir);
-  g_warning("APPDIR: %s", appdir_global);
+  size_t len;
+  if (appimage_mode) {
+    if (!str_copy_formatted(appdir_global, &len, FIXED_STRING_FIELD_SZ, "%s", appdir)) {
+      g_warning("AppImage mode, but unable to copy AppDir path of %zu bytes -- path too long!", len);
+      return false;
+    }
+  }
+
 
   parse_and_copy_string(app, launcher_config_json, "public_patch_url",
                         patch_url_global);

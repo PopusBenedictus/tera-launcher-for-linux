@@ -57,6 +57,11 @@ typedef struct {
   gboolean play_button_enabled;
   gboolean repair_button_enabled;
   gboolean repair_requested;
+  gboolean enable_pulse;
+  gboolean window_minimized;
+  gboolean window_sensitive;
+  gboolean wine_env_setup_done;
+  gboolean wine_env_setup_success;
 } UpdateThreadData;
 
 /**

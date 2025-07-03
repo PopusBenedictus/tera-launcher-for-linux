@@ -1523,6 +1523,19 @@ static gchar **build_launch_argv(const gchar *exe_path,
 }
 
 /**
+ * @brief Callback used to handle exit status of wineprefix health check.
+ * @param pid Thread PID for the wineprefix health check thread.
+ * @param wait_status A GTK-specific wait status to be checked for abnormal termination.
+ * @param user_data Our update thread data struct.
+ */
+static void game_wine_env_thread_watcher(GPid pid, gint wait_status, gpointer user_data) {
+  UpdateThreadData *td = user_data;
+  td->wine_env_setup_success = g_spawn_check_wait_status(wait_status, nullptr);
+  td->wine_env_setup_done = true;
+  g_spawn_close_pid(pid);
+}
+
+/**
  * @brief Prepare wineprefix if it does not exist and install dependencies.
  *
  * @param envp               Environment variables to use when launching

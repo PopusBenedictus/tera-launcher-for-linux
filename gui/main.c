@@ -1648,10 +1648,39 @@ static gpointer game_launcher_thread(gpointer data) {
   if (!launch_data)
     return nullptr;
 
+
+  // Ideally we marshall UI changes, rather than make them directly from this thread.
+  // But if we cannot do that, we'll just have to go for it and pray.
+  UpdateThreadData *thread_data = malloc(sizeof(UpdateThreadData));
+  if (!thread_data) {
+    game_exit_callback(1, launch_data->ld);
+    return nullptr;
+  }
+
+  memset(thread_data, 0, sizeof(UpdateThreadData));
+  thread_data = ut_data_ref(thread_data);
+  thread_data->ld = launch_data->ld;
+  thread_data->enable_pulse = false;
+  thread_data->window_minimized = false;
+  thread_data->wine_env_setup_done = false;
+  thread_data->wine_env_setup_success = false;
+  thread_data->update_data.download_progress_bar = GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar);
+  thread_data->update_data.progress_bar = GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar);
+
   char cwd[FIXED_STRING_FIELD_SZ];
   if (!getcwd(cwd, sizeof cwd)) {
     g_warning("Failed to getcwd()");
-    gtk_widget_set_sensitive(GTK_WIDGET(launch_data->ld->play_btn), true);
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Failed to verify current working directory";
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
   }
@@ -1669,7 +1698,20 @@ static gpointer game_launcher_thread(gpointer data) {
   }
   if (!str_copy_formatted(game_path, &need, sizeof game_path,
                           "Z:%s\\Binaries\\TERA.exe", game_base)) {
-    g_error("Path buffer too small; need %zu bytes", need);
+    g_warning("Path buffer too small; need %zu bytes", need);
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Memory allocation error preparing game path for Wine";
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    ut_data_unref(thread_data);
+    free(launch_data);
+    return nullptr;
   }
 
   gchar *cwd_g = g_get_current_dir();
@@ -1682,9 +1724,20 @@ static gpointer game_launcher_thread(gpointer data) {
 
   if (!g_file_test(stub_path, G_FILE_TEST_EXISTS)) {
     g_message("stub_launcher.exe not found: %s", stub_path);
-    game_exit_callback(1, launch_data->ld); /* custom callback */
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Stub launcher not found";
+    thread_data->enable_pulse = false;
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_free(stub_path);
     g_free(cwd_g);
+    ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
   }
@@ -1693,8 +1746,20 @@ static gpointer game_launcher_thread(gpointer data) {
   gchar **envp = build_wine_environment(wine_base_dir_global, wineprefix_global,
                                         use_gamescope, &wine_bin);
   if (!envp) {
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Failed to prepare Wine environment variables";
+    thread_data->enable_pulse = false;
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_free(stub_path);
     g_free(cwd_g);
+    ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
   }

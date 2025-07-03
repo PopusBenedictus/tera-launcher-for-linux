@@ -152,7 +152,6 @@ The `build-appimage.sh` script supports customization via environment variables:
 * `BRANCH` — Git branch to build (default: `main`)
 * `CLONE_REPO` — `1` to clone inside container instead of mounting (default: `0`)
 * `GE_PROTON_VERSION` — Proton GE version (default: `GE-Proton10-7`)
-* `GE_PROTON_URL` — Custom URL for Proton tarball
 
 **Example:** Build from branch `dev` using GE-Proton v10.8
 

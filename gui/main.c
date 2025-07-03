@@ -1781,80 +1781,74 @@ static gpointer game_launcher_thread(gpointer data) {
   GError *err = nullptr;
   gint status = 0;
 
-  gtk_progress_bar_set_text(
-      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),
-      "Preparing Environment");
-  gtk_progress_bar_set_text(
-      GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar),
-      "Might take awhile the first time");
-  gtk_progress_bar_set_fraction(
-      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 0.5);
-
-  if (!prepare_wineprefix(envp)) {
-    gtk_progress_bar_set_text(
-        GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),
-        "Error Launching Game");
-    gtk_progress_bar_set_fraction(
-        GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 0.0);
-    gtk_progress_bar_set_text(
-        GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar),
-        "Failed to Prepare Environment");
-    gtk_progress_bar_set_fraction(
-        GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), 1.0);
-
-    game_exit_callback(status, launch_data->ld);
+  if (!prepare_wineprefix(envp, thread_data)) {
+    thread_data->current_progress = 0.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 1.0;
+    thread_data->current_download_message = "Failed to Prepare Game Dependencies";
+    thread_data->enable_pulse = false;
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
 
     g_strfreev(argv_final);
     g_strfreev(envp);
     g_free(wine_bin);
     g_free(stub_path);
     g_free(cwd_g);
+    ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
   }
 
-  gtk_progress_bar_set_text(
-      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),
-      "Launching the Game");
-  gtk_progress_bar_set_fraction(
-      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 1.0);
-  gtk_progress_bar_set_text(
-      GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), "");
-  gtk_progress_bar_set_fraction(
-      GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), 1.0);
-  gtk_window_minimize(GTK_WINDOW(launch_data->ld->window));
+  thread_data->current_progress = 1.0;
+  thread_data->current_message = "Launching the Game";
+  thread_data->current_download_progress = 1.0;
+  thread_data->current_download_message = "Have Fun :)";
+  thread_data->enable_pulse = false;
+  thread_data->window_minimized = true;
+  g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+              ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+  g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+              ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
 
   const gboolean ok =
-      g_spawn_sync(cwd_g, argv_final, envp, G_SPAWN_DEFAULT, nullptr, nullptr,
-                   nullptr, nullptr, &status, &err);
+    g_spawn_sync(cwd_g, argv_final, envp, G_SPAWN_DEFAULT, nullptr, nullptr,
+                 nullptr, nullptr, &status, &err);
 
+  thread_data->window_minimized = false;
+  thread_data->window_sensitive = true;
   if (!ok) {
-    gtk_progress_bar_set_text(
-        GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),
-        "Error Launching Game");
-    gtk_progress_bar_set_fraction(
-        GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar), 1.0);
-    gtk_progress_bar_set_text(
-        GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar),
-        err->message);
-    gtk_progress_bar_set_fraction(
-        GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar), 0.0);
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Runtime Error Starting the Game Client";
+    thread_data->enable_pulse = false;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
   } else {
-    gtk_progress_bar_set_text(
-        GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar),
-        "Game Exited");
-    gtk_progress_bar_set_text(
-        GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar),
-        "Game Ready to Launch");
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Game Exited";
+    thread_data->current_download_progress = 1.0;
+    thread_data->current_download_message = "Game Ready to Launch";
+    thread_data->enable_pulse = false;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
   }
-
-  game_exit_callback(status, launch_data->ld);
 
   g_strfreev(argv_final);
   g_strfreev(envp);
   g_free(wine_bin);
   g_free(stub_path);
   g_free(cwd_g);
+  ut_data_unref(thread_data);
   free(launch_data);
 
   return nullptr;

@@ -262,7 +262,8 @@ static UpdateThreadData *ut_data_ref(UpdateThreadData *td) {
  */
 static void ut_data_unref(UpdateThreadData *td) {
   if (g_atomic_int_dec_and_test(&td->refcount)) {
-    g_free(td->update_data.game_path);
+    if (td->update_data.game_path)
+      g_free(td->update_data.game_path);
     free(td);
   }
 }

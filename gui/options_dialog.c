@@ -759,6 +759,18 @@ void config_read_from_ini(void) {
   READ_STRING_KEY("gamescope_args", gamescope_args_global);
 
 #undef READ_STRING_KEY
+  /* If wine_base_dir is unset in AppImage mode or contains a tmp path,
+   * the default wine dir is our bundled GE-Proton */
+  if (appimage_mode && (strlen(wine_base_dir_global) == 0 ||
+                        strstr(wine_base_dir_global, "/tmp/.") != nullptr)) {
+    size_t needed;
+    if (!str_copy_formatted(wine_base_dir_global, &needed,
+                            FIXED_STRING_FIELD_SZ, "%s/%s", appdir_global,
+                            "/usr/lib/ge-proton/files")) {
+      g_error("Unable to specify path to bundled GE-Proton runtime. Cannot "
+              "continue.");
+    }
+  }
 
   /* Check for TERA_CUSTOM_WINE_DIR ENV (overrides INI if present) */
   const char *env_wine_dir = g_getenv("TERA_CUSTOM_WINE_DIR");

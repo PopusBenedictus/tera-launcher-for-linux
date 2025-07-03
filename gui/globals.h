@@ -14,6 +14,7 @@
 extern "C" {
 #endif
 
+extern char appdir_global[FIXED_STRING_FIELD_SZ];
 extern char game_lang_global[FIXED_STRING_FIELD_SZ];
 extern char wineprefix_global[FIXED_STRING_FIELD_SZ];
 extern char wineprefix_default_global[FIXED_STRING_FIELD_SZ];

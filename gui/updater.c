@@ -316,9 +316,16 @@ static gboolean extract_cabinet(const char *cabinet_path, const char *dest_path,
   /* Since unelzma is a custom app we build for use with the launcher it is
    * expected to be bundled with the launcher */
   size_t required;
-  const bool success =
-      str_copy_formatted(command, &required, FIXED_STRING_FIELD_SZ,
-                         "./unelzma \"%s\" \"%s\"", cabinet_path, dest_path);
+  bool success = false;
+  if (appimage_mode)
+    success = str_copy_formatted(command, &required, FIXED_STRING_FIELD_SZ,
+                                 "%s/usr/bin/unelzma \"%s\" \"%s\"",
+                                 appdir_global, cabinet_path, dest_path);
+  else
+    success =
+        str_copy_formatted(command, &required, FIXED_STRING_FIELD_SZ,
+                           "./unelzma \"%s\" \"%s\"", cabinet_path, dest_path);
+
   if (!success) {
     g_error("Failed to allocate %zu bytes for command path string in buffer of "
             "size %zu bytes.",

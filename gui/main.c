@@ -1538,10 +1538,10 @@ static void game_wine_env_thread_watcher(GPid pid, gint wait_status, gpointer us
 /**
  * @brief Prepare wineprefix if it does not exist and install dependencies.
  *
- * @param envp               Environment variables to use when launching
- * winetricks
+ * @param envp Environment variables to use when launching winetricks.
+ * @param thread_data Update thread struct for GUI updates while performing the task.
  */
-static bool prepare_wineprefix(gchar **envp) {
+static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
   gchar *winetricks = g_find_program_in_path("winetricks");
   if (!winetricks)
     return false;
@@ -1558,10 +1558,25 @@ static bool prepare_wineprefix(gchar **envp) {
   const auto argv_complete = (gchar **)g_ptr_array_free(argv, false);
 
   GError *err = nullptr;
+  GPid child_pid = 0;
   const gboolean ok =
-      g_spawn_sync(nullptr, argv_complete, envp,
-                   G_SPAWN_STDERR_TO_DEV_NULL | G_SPAWN_STDOUT_TO_DEV_NULL,
-                   nullptr, nullptr, nullptr, nullptr, nullptr, &err);
+      g_spawn_async(nullptr, argv_complete, envp, G_SPAWN_DO_NOT_REAP_CHILD, nullptr,
+                    nullptr, &child_pid, &err);
+
+  g_child_watch_add(child_pid, (GChildWatchFunc)game_wine_env_thread_watcher, thread_data);
+
+  while (!thread_data->wine_env_setup_done) {
+    thread_data->current_progress = 0.5;
+    thread_data->current_message = "Preparing Environment";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Might take awhile the first time";
+    thread_data->enable_pulse = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_usleep(500000);
+  }
 
   if (!ok) {
     g_warning("Winetricks failed: %s (%i)", err->message, err->code);

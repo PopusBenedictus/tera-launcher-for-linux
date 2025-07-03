@@ -1298,6 +1298,10 @@ static gboolean restore_launcher_callback(gpointer user_data) {
   gtk_widget_set_sensitive(cb_data->ld->window, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->play_btn, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->option_menu_btn, TRUE);
+  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(cb_data->ld->update_repair_progress_bar), 1.0);
+  gtk_progress_bar_set_text(GTK_PROGRESS_BAR(cb_data->ld->update_repair_progress_bar), "Failed to Launch Game");
+  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(cb_data->ld->update_repair_download_bar), 0.0);
+  gtk_progress_bar_set_text(GTK_PROGRESS_BAR(cb_data->ld->update_repair_download_bar), "Memory Allocation Failure");
   gtk_window_present(GTK_WINDOW(cb_data->ld->window));
 
   free(cb_data);

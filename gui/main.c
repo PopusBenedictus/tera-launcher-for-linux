@@ -389,9 +389,6 @@ static bool do_login(const char *username, const char *password,
               out->user_no[sizeof(out->user_no) - 1] = '\0';
               out->auth_key[sizeof(out->auth_key) - 1] = '\0';
               out->character_count[sizeof(out->character_count) - 1] = '\0';
-
-              g_message("Login success: user_no=%s, AuthKey=%s, CharCount=%s",
-                        out->user_no, out->auth_key, out->character_count);
               success = true;
             } else {
               g_warning("Invalid JSON structure for login data.");

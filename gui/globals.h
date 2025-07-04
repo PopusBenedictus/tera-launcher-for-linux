@@ -14,6 +14,7 @@
 extern "C" {
 #endif
 
+extern char last_successful_login_username_global[FIXED_STRING_FIELD_SZ];
 extern char appdir_global[FIXED_STRING_FIELD_SZ];
 extern char game_lang_global[FIXED_STRING_FIELD_SZ];
 extern char wineprefix_global[FIXED_STRING_FIELD_SZ];
@@ -32,6 +33,7 @@ extern bool appimage_mode;
 extern bool use_gamemoderun;
 extern bool use_gamescope;
 extern bool use_tera_toolbox;
+extern bool save_login_info;
 
 #ifdef __cplusplus
 }

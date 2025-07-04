@@ -73,6 +73,11 @@ struct CurlResponse {
 };
 
 /**
+ * @brief The username of the last successful login.
+ */
+char last_successful_login_username_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief AppDir path, only used in when AppImage mode is enabled.
  */
 char appdir_global[FIXED_STRING_FIELD_SZ] = {0};
@@ -175,6 +180,11 @@ bool appimage_mode = false;
  * game itself. Turned off by default.
  */
 bool use_tera_toolbox = false;
+
+/**
+ * @brief If set to TRUE, attempt to store login info so it can be retrieved later.
+ */
+bool save_login_info = false;
 
 /**
  * @brief Used to store the final update thread message, if any, to update

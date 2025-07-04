@@ -757,6 +757,7 @@ void config_read_from_ini(void) {
   READ_STRING_KEY("wine_base_dir", wine_base_dir_global);
   READ_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
   READ_STRING_KEY("gamescope_args", gamescope_args_global);
+  READ_STRING_KEY("last_successful_login_username", last_successful_login_username_global);
 
 #undef READ_STRING_KEY
   /* If wine_base_dir is unset in AppImage mode or contains a tmp path,
@@ -799,6 +800,7 @@ void config_read_from_ini(void) {
   READ_BOOL_KEY("use_gamemoderun", use_gamemoderun);
   READ_BOOL_KEY("use_gamescope", use_gamescope);
   READ_BOOL_KEY("use_tera_toolbox", use_tera_toolbox);
+  READ_BOOL_KEY("save_login_info", save_login_info);
 
 #undef READ_BOOL_KEY
 
@@ -842,7 +844,7 @@ void config_write_to_ini(void) {
   WRITE_STRING_KEY("gameprefix", gameprefix_global);
   WRITE_STRING_KEY("tera_toolbox_path", tera_toolbox_path_global);
   WRITE_STRING_KEY("gamescope_args", gamescope_args_global);
-
+  WRITE_STRING_KEY("last_successful_login_username", last_successful_login_username_global);
 #undef WRITE_STRING_KEY
 
   // Write boolean values (always written)
@@ -851,6 +853,7 @@ void config_write_to_ini(void) {
   g_key_file_set_boolean(keyfile, "Settings", "use_gamescope", use_gamescope);
   g_key_file_set_boolean(keyfile, "Settings", "use_tera_toolbox",
                          use_tera_toolbox);
+  g_key_file_set_boolean(keyfile, "Settings", "save_login_info", save_login_info);
 
   // Save to file
   gsize length = 0;

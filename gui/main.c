@@ -543,6 +543,15 @@ static GtkWidget *create_login_overlay(LauncherData *ld) {
   gtk_widget_add_css_class(ld->pass_entry, "img_textbox");
   gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->pass_entry);
 
+  // Toggle to store login info or not.
+  ld->login_store_checkbox = gtk_check_button_new_with_label("Remember Login?");
+  gtk_widget_set_halign(ld->login_store_checkbox, GTK_ALIGN_START);
+  gtk_widget_set_valign(ld->login_store_checkbox, GTK_ALIGN_END);
+  gtk_widget_set_margin_start(ld->login_store_checkbox, 68);
+  gtk_widget_set_margin_bottom(ld->login_store_checkbox, 264);
+  gtk_widget_add_css_class(ld->login_store_checkbox, "remember_me_checkbox");
+  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->login_store_checkbox);
+
   // Login Button
   GdkTexture *login_sub =
       load_subimage("/com/tera/launcher/btn-auth.png", 0, 0, 224, 69);

@@ -42,6 +42,7 @@ typedef struct {
   GtkWindowHandle *login_window_handle;
   GtkWidget *user_entry;
   GtkWidget *pass_entry;
+  GtkWidget *login_store_checkbox;
   GtkWidget *login_btn;
   GtkWidget *close_login_btn;
 

@@ -345,7 +345,6 @@ static bool do_login(const char *username, const char *password,
         "Failed to allocate %zu bytes for postfields into buffer of %zu bytes.",
         required, FIXED_STRING_FIELD_SZ);
   }
-  g_message("Fields being sent: %s", postfields);
 
   // Set cURL options
   curl_easy_setopt(curl, CURLOPT_URL, auth_url_global);
@@ -354,7 +353,6 @@ static bool do_login(const char *username, const char *password,
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-  curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
   // Perform the request
   CURLcode res = curl_easy_perform(curl);

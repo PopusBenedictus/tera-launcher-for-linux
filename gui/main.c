@@ -1959,6 +1959,29 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
 
   LoginData temp = {0};
   if (do_login(username, password, &temp)) {
+    size_t required;
+    bool success;
+    if (gtk_check_button_get_active(GTK_CHECK_BUTTON(ld->login_store_checkbox))) {
+      save_login_info = true;
+      success = str_copy_formatted(last_successful_login_username_global,
+      &required, FIXED_STRING_FIELD_SZ, "%s", username);
+      if (success) {
+        if (!tl4l_store_account_password(username, password))
+          g_warning("Could not store password for account with username '%s'", username);
+        else
+          config_write_to_ini();
+      } else {
+        g_error("Failed to allocate %zu bytes for username in buffer of "
+          "size %zu bytes.",
+          required, FIXED_STRING_FIELD_SZ);
+      }
+    } else {
+      save_login_info = false;
+      memset(last_successful_login_username_global, 0, FIXED_STRING_FIELD_SZ);
+      tl4l_clear_account_password(username);
+      config_write_to_ini();
+    }
+
     // Store login data
     strncpy(ld->login_data.user_no, temp.user_no,
             sizeof(ld->login_data.user_no) - 1);
@@ -1968,8 +1991,7 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
             sizeof(ld->login_data.character_count) - 1);
 
     // Prepare user welcome label on patch screen.
-    size_t required;
-    const bool success = str_copy_formatted(ld->login_data.welcome_label_msg,
+    success = str_copy_formatted(ld->login_data.welcome_label_msg,
                                             &required, FIXED_STRING_FIELD_SZ,
                                             "Welcome, <b>%s!</b>", username);
     if (!success) {
@@ -2178,6 +2200,12 @@ static void activate(GtkApplication *app, gpointer user_data) {
     }
   }
 
+  // Reset stored username if user chose to no longer store login information.
+  if (!save_login_info && strlen(last_successful_login_username_global) > 0) {
+    tl4l_clear_account_password(last_successful_login_username_global);
+    memset(last_successful_login_username_global, 0, FIXED_STRING_FIELD_SZ);
+  }
+
   // Write loaded configuration (and any changes applied above).
   config_write_to_ini();
 
@@ -2251,6 +2279,17 @@ static void activate(GtkApplication *app, gpointer user_data) {
                             GTK_EVENT_CONTROLLER(ld->login_controller));
   gtk_widget_add_controller(ld->patch_overlay,
                             GTK_EVENT_CONTROLLER(ld->patch_controller));
+  gtk_check_button_set_active(GTK_CHECK_BUTTON(ld->login_store_checkbox), save_login_info);
+
+  if (strlen(last_successful_login_username_global) > 0 && save_login_info) {
+    gchar *password = tl4l_lookup_account_password(last_successful_login_username_global);
+    gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(ld->user_entry)),
+      last_successful_login_username_global, -1);
+    if (password) {
+      gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(ld->pass_entry)), password, -1);
+      g_free(password);
+    }
+  }
 
   // Show the main window
   gtk_widget_set_visible(ld->window, TRUE);

@@ -8,6 +8,7 @@ RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y \
     libgtk-4-dev libcurl4-openssl-dev libssl-dev python3-gi gir1.2-gtk-4.0 \
     libsqlite3-dev libjansson-dev libprotobuf-c-dev adwaita-icon-theme \
     libmxml-dev pkg-config git wget xz-utils gnome-themes-extra \
+    libsecret-1-dev libsecret-1-0 libsecret-common libsecret-tools \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build

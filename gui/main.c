@@ -5,7 +5,7 @@
  * http://www.wtfpl.net/ for more details.
  */
 
-#include "shared_struct_defs.h"
+#include "auth.h"
 #include "updater.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>

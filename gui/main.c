@@ -1407,8 +1407,6 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
                                       const bool enable_wsi_fix,
                                       gchar **wine_path) {
   gchar **envp = g_get_environ();
-
-  /* ── 1. Locate the Wine binary ──────────────────────────────────────── */
   gchar *resolved_wine = nullptr;
 
   if (custom_wine_dir && *custom_wine_dir) {

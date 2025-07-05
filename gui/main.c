@@ -78,6 +78,12 @@ struct CurlResponse {
 char last_successful_login_username_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
+ * @brief The password of the last successful login. Note this is only populated
+ * when plaintext password storage is enabled.
+ */
+char last_successful_login_password_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief AppDir path, only used in when AppImage mode is enabled.
  */
 char appdir_global[FIXED_STRING_FIELD_SZ] = {0};
@@ -186,6 +192,12 @@ bool use_tera_toolbox = false;
  * later.
  */
 bool save_login_info = false;
+
+/**
+ * @brief If set to TRUE, read and write login info when user requests to store
+ * it to plain text.
+ */
+bool plaintext_login_info_storage = false;
 
 /**
  * @brief Used to store the final update thread message, if any, to update

@@ -1057,47 +1057,92 @@ void free_file_info(void *info) {
   }
 }
 
-void on_torrent_progress(float progress, uint64_t downloaded, uint64_t total,
-                         uint32_t download_rate, void *userdata) {
-  auto *data = (UpdateData *)userdata;
+void on_torrent_progress(const float progress, const uint64_t downloaded,
+                         const uint64_t total, const uint32_t download_rate,
+                         void *userdata) {
+  auto *data = (ProgressData *)userdata;
+
   if (progress < 0.0f) {
     data->torrent_download_done = true;
     data->torrent_download_done = false;
+    update_progress(data->callback, 0.0, "Unable to download from torrent",
+                    data);
+    update_progress(data->download_callback, 0.0,
+                    "Falling back to download from update server", data);
     return;
   }
 
-  (void)downloaded;
-  (void)total;
-  (void)download_rate;
-  (void)userdata;
+  print_size((double)downloaded, data->download_now,
+             sizeof(data->download_now));
+  print_size((double)total, data->download_total, sizeof(data->download_total));
+  print_speed(download_rate, data->download_speed,
+              sizeof(data->download_speed));
+
+  constexpr size_t pbar_sz = sizeof(data->pbar_label);
+  size_t required;
+
+  const bool success = str_copy_formatted(
+      data->pbar_label, &required, pbar_sz, "Progress ( %s / %s ) %s",
+      data->download_now, data->download_total, data->download_speed);
+
+  if (!success) {
+    g_error("Failed to allocate %zu bytes for progress bar update into "
+            "buffer of %zu bytes.",
+            required, pbar_sz);
+  }
+
+  update_progress(data->download_callback, progress, data->pbar_label,
+                  data->user_data);
 }
 
 /**
  * @brief Downloads and extracts base game files from a torrent download source.
  * This has to be followed with a game files repair operation to verify file
  * integrity as well as update the game files.
- * @param data Update process state object.
+ * @param callback A callback to update the overall update progress bar.
+ * @param download_callback A callback to update the file download progress bar.
+ * @param user_data Update process state object.
  * @return Returns TRUE if base game files are successfully acquired, otherwise
  * returns FALSE.
  */
-gboolean download_from_torrent(UpdateData *data) {
-  data->session = torrent_session_create(on_torrent_progress, data);
-  data->torrent_download_done = false;
-  data->torrent_download_success = false;
+gboolean download_from_torrent(const ProgressCallback callback,
+                               const ProgressCallback download_callback,
+                               gpointer user_data) {
+  ProgressData pd = {nullptr};
+  pd.callback = callback;
+  pd.download_callback = download_callback;
+  pd.user_data = user_data;
+  pd.session = torrent_session_create(on_torrent_progress, &pd);
+  pd.torrent_download_done = false;
+  pd.torrent_download_success = false;
 
-  if (torrent_session_start_download(data->session, torrent_magnet_link,
+  if (torrent_session_start_download(pd.session, torrent_magnet_link,
                                      torrentprefix_global) != 0) {
     g_warning("Failed to start torrent download: %s",
-              torrent_session_get_error(data->session));
-    torrent_session_close(data->session);
+              torrent_session_get_error(pd.session));
+    torrent_session_close(pd.session);
     return false;
   }
 
-  while (!data->torrent_download_done) {
+  size_t required;
+  char overall_pbar_label[FIXED_STRING_FIELD_SZ];
+  const bool success = str_copy_formatted(
+      overall_pbar_label, &required, FIXED_STRING_FIELD_SZ,
+      "Downloading base game archive: %s", torrent_file_name);
+
+  if (!success) {
+    g_error("Failed to allocate %zu bytes for progress bar update into "
+            "buffer of %zu bytes.",
+            required, FIXED_STRING_FIELD_SZ);
+  }
+
+  update_progress(callback, 0.0, overall_pbar_label, &pd);
+
+  while (!pd.torrent_download_done) {
     g_usleep(500000);
   }
 
-  torrent_session_close(data->session);
-  data->session = nullptr;
-  return data->torrent_download_success;
+  torrent_session_close(pd.session);
+  pd.session = nullptr;
+  return pd.torrent_download_success;
 }

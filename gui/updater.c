@@ -74,6 +74,9 @@ typedef struct {
   char download_now[FIXED_STRING_FIELD_SZ];
   char download_total[FIXED_STRING_FIELD_SZ];
   char download_speed[FIXED_STRING_FIELD_SZ];
+  TorrentSession *session;
+  bool torrent_download_done;
+  bool torrent_download_success;
 } ProgressData;
 
 /* --- HELPER FUNCTIONS --- */

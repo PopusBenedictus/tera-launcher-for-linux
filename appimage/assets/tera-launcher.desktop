@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=TERA Launcher for Linux
-Exec=env APPIMAGE_MODE_ENABLED=1 ./AppRun
+Exec=./AppRun
 Icon=tera-launcher
 Type=Application
 Categories=Game;

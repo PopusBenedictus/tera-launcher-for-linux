@@ -78,6 +78,12 @@ struct CurlResponse {
 char last_successful_login_username_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
+ * @brief The password of the last successful login. Note this is only populated
+ * when plaintext password storage is enabled.
+ */
+char last_successful_login_password_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief AppDir path, only used in when AppImage mode is enabled.
  */
 char appdir_global[FIXED_STRING_FIELD_SZ] = {0};
@@ -182,9 +188,16 @@ bool appimage_mode = false;
 bool use_tera_toolbox = false;
 
 /**
- * @brief If set to TRUE, attempt to store login info so it can be retrieved later.
+ * @brief If set to TRUE, attempt to store login info so it can be retrieved
+ * later.
  */
 bool save_login_info = false;
+
+/**
+ * @brief If set to TRUE, read and write login info when user requests to store
+ * it to plain text.
+ */
+bool plaintext_login_info_storage = false;
 
 /**
  * @brief Used to store the final update thread message, if any, to update
@@ -1022,6 +1035,8 @@ static gboolean launcher_init_config(GtkApplication *app) {
     return false;
 
   appimage_mode = g_getenv("APPIMAGE_MODE_ENABLED") != nullptr;
+  plaintext_login_info_storage =
+      g_getenv("TL4L_ENABLE_PLAINTEXT_PASSWORD_STORAGE") != nullptr;
   const gchar *appdir = g_getenv("APPDIR");
   size_t len;
   if (appimage_mode) {
@@ -1392,8 +1407,6 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
                                       const bool enable_wsi_fix,
                                       gchar **wine_path) {
   gchar **envp = g_get_environ();
-
-  /* ── 1. Locate the Wine binary ──────────────────────────────────────── */
   gchar *resolved_wine = nullptr;
 
   if (custom_wine_dir && *custom_wine_dir) {
@@ -1557,8 +1570,13 @@ static gchar **build_launch_argv(const gchar *exe_path,
 static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
                                          gpointer user_data) {
   UpdateThreadData *td = user_data;
-  td->wine_env_setup_success = g_spawn_check_wait_status(wait_status, nullptr);
+  GError *err = nullptr;
+  td->wine_env_setup_success = g_spawn_check_wait_status(wait_status, &err);
   td->wine_env_setup_done = true;
+  if (err) {
+    g_message("Winetricks exit code %i: %s", err->code, err->message);
+    g_error_free(err);
+  }
   g_spawn_close_pid(pid);
 }
 
@@ -1571,8 +1589,10 @@ static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
  */
 static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
   gchar *winetricks = g_find_program_in_path("winetricks");
-  if (!winetricks)
+  if (!winetricks) {
+    g_warning("Failed to find winetricks");
     return false;
+  }
 
   GPtrArray *argv = g_ptr_array_new();
   g_ptr_array_add(argv, g_strdup(winetricks));
@@ -1961,24 +1981,36 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
   if (do_login(username, password, &temp)) {
     size_t required;
     bool success;
-    if (gtk_check_button_get_active(GTK_CHECK_BUTTON(ld->login_store_checkbox))) {
+    if (gtk_check_button_get_active(
+            GTK_CHECK_BUTTON(ld->login_store_checkbox))) {
       save_login_info = true;
-      success = str_copy_formatted(last_successful_login_username_global,
-      &required, FIXED_STRING_FIELD_SZ, "%s", username);
+      success =
+          str_copy_formatted(last_successful_login_username_global, &required,
+                             FIXED_STRING_FIELD_SZ, "%s", username);
       if (success) {
-        if (!tl4l_store_account_password(username, password))
-          g_warning("Could not store password for account with username '%s'", username);
-        else
-          config_write_to_ini();
+        if (!plaintext_login_info_storage) {
+          if (!tl4l_store_account_password(username, password))
+            g_warning("Could not store password for account with username '%s'",
+                      username);
+        } else {
+          success = str_copy_formatted(last_successful_login_password_global,
+                                       &required, FIXED_STRING_FIELD_SZ, "%s",
+                                       password);
+          if (!success)
+            g_warning("Could not store password for account with username '%s'",
+                      username);
+        }
+        config_write_to_ini();
       } else {
         g_error("Failed to allocate %zu bytes for username in buffer of "
-          "size %zu bytes.",
-          required, FIXED_STRING_FIELD_SZ);
+                "size %zu bytes.",
+                required, FIXED_STRING_FIELD_SZ);
       }
     } else {
       save_login_info = false;
       memset(last_successful_login_username_global, 0, FIXED_STRING_FIELD_SZ);
-      tl4l_clear_account_password(username);
+      if (!plaintext_login_info_storage)
+        tl4l_clear_account_password(username);
       config_write_to_ini();
     }
 
@@ -1991,9 +2023,9 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
             sizeof(ld->login_data.character_count) - 1);
 
     // Prepare user welcome label on patch screen.
-    success = str_copy_formatted(ld->login_data.welcome_label_msg,
-                                            &required, FIXED_STRING_FIELD_SZ,
-                                            "Welcome, <b>%s!</b>", username);
+    success = str_copy_formatted(ld->login_data.welcome_label_msg, &required,
+                                 FIXED_STRING_FIELD_SZ, "Welcome, <b>%s!</b>",
+                                 username);
     if (!success) {
       g_error("Failed to allocate %zu bytes for welcome string in buffer of "
               "size %zu bytes.",
@@ -2279,14 +2311,21 @@ static void activate(GtkApplication *app, gpointer user_data) {
                             GTK_EVENT_CONTROLLER(ld->login_controller));
   gtk_widget_add_controller(ld->patch_overlay,
                             GTK_EVENT_CONTROLLER(ld->patch_controller));
-  gtk_check_button_set_active(GTK_CHECK_BUTTON(ld->login_store_checkbox), save_login_info);
+  gtk_check_button_set_active(GTK_CHECK_BUTTON(ld->login_store_checkbox),
+                              save_login_info);
 
   if (strlen(last_successful_login_username_global) > 0 && save_login_info) {
-    gchar *password = tl4l_lookup_account_password(last_successful_login_username_global);
+    gchar *password;
+    if (plaintext_login_info_storage)
+      password = g_strdup(last_successful_login_password_global);
+    else
+      password =
+          tl4l_lookup_account_password(last_successful_login_username_global);
     gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(ld->user_entry)),
-      last_successful_login_username_global, -1);
+                              last_successful_login_username_global, -1);
     if (password) {
-      gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(ld->pass_entry)), password, -1);
+      gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(ld->pass_entry)),
+                                password, -1);
       g_free(password);
     }
   }

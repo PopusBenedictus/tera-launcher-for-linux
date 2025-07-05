@@ -53,6 +53,20 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
                             ProgressCallback download_callback,
                             gpointer user_data);
 
+/**
+ * @brief Downloads and extracts base game files from a torrent download source.
+ * This has to be followed with a game files repair operation to verify file
+ * integrity as well as update the game files.
+ * @param callback A callback to update the overall update progress bar.
+ * @param download_callback A callback to update the file download progress bar.
+ * @param user_data Update process state object.
+ * @return Returns TRUE if base game files are successfully acquired, otherwise
+ * returns FALSE.
+ */
+gboolean download_from_torrent(ProgressCallback callback,
+                               ProgressCallback download_callback,
+                               gpointer user_data);
+
 // Utility function to free FileInfo
 void free_file_info(void *info);
 

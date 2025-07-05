@@ -1095,18 +1095,8 @@ void on_torrent_progress(const float progress, const uint64_t downloaded,
                   data->user_data);
 }
 
-/**
- * @brief Downloads and extracts base game files from a torrent download source.
- * This has to be followed with a game files repair operation to verify file
- * integrity as well as update the game files.
- * @param callback A callback to update the overall update progress bar.
- * @param download_callback A callback to update the file download progress bar.
- * @param user_data Update process state object.
- * @return Returns TRUE if base game files are successfully acquired, otherwise
- * returns FALSE.
- */
-gboolean download_from_torrent(const ProgressCallback callback,
-                               const ProgressCallback download_callback,
+gboolean download_from_torrent(ProgressCallback callback,
+                               ProgressCallback download_callback,
                                gpointer user_data) {
   ProgressData pd = {nullptr};
   pd.callback = callback;

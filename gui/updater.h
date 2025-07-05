@@ -7,6 +7,7 @@
 
 #ifndef UPDATER_H
 #define UPDATER_H
+#include "torrent_wrapper.h"
 #include <gtk/gtk.h>
 
 // Structure to hold file information
@@ -24,6 +25,9 @@ typedef struct {
   GtkProgressBar *download_progress_bar;
   gchar *game_path;
   const char *public_patch_url;
+  TorrentSession *session;
+  bool torrent_download_done;
+  bool torrent_download_success;
 } UpdateData;
 
 // Callback type for progress updates

@@ -129,6 +129,21 @@ char configprefix_global[FIXED_STRING_FIELD_SZ] = {0};
 char wine_base_dir_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
+ * @brief Torrent download directory folder name from embedded json resource.
+ */
+char torrentprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Torrent download file name from embedded json resource.
+ */
+char torrent_file_name[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Torrent download magnet link from embedded json resource.
+ */
+char torrent_magnet_link[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief Holds a copy of the patch url root.
  */
 char patch_url_global[FIXED_STRING_FIELD_SZ] = {0};
@@ -198,6 +213,13 @@ bool save_login_info = false;
  * it to plain text.
  */
 bool plaintext_login_info_storage = false;
+
+/**
+ * @brief If set to TRUE, when downloading game files _for the first time_,
+ * use the torrent download option, failing back to web server download
+ * if necessary. This is configured at compile time from embedded JSON resource.
+ */
+bool torrent_download_enabled = false;
 
 /**
  * @brief Used to store the final update thread message, if any, to update
@@ -976,6 +998,55 @@ static void parse_and_copy_string(GtkApplication *app,
 }
 
 /**
+ * @brief Retrieve a bool value by key from the JSON object and copy it into
+ * the given buffer.
+ *
+ * If the key is missing or not a bool, a fatal error dialog is shown and the
+ * application quits.
+ *
+ * @param app                  The GtkApplication to use for showing fatal
+ * errors.
+ * @param launcher_config_json The JSON object to read from.
+ * @param key                  The JSON key to look up.
+ */
+static bool parse_and_copy_bool(GtkApplication *app,
+                                const json_t *launcher_config_json,
+                                const char *key) {
+  json_t *field = json_object_get(launcher_config_json, key);
+  if (!field) {
+    size_t required;
+    char error_message[FIXED_STRING_FIELD_SZ] = {0};
+    const bool success =
+        str_copy_formatted(error_message, &required, FIXED_STRING_FIELD_SZ,
+                           "Could not parse key: %s", key);
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for error message into buffer of "
+              "%zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
+    }
+    show_alert_dialog(gtk_application_get_active_window(app), "Data Error",
+                      error_message, ALERT_MSG_ERROR);
+  }
+
+  if (!json_is_boolean(field)) {
+    size_t required;
+    char error_message[FIXED_STRING_FIELD_SZ] = {0};
+    const bool success =
+        str_copy_formatted(error_message, &required, FIXED_STRING_FIELD_SZ,
+                           "Key '%s' is not a valid string.", key);
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for error message into buffer of "
+              "%zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
+    }
+    show_alert_dialog(gtk_application_get_active_window(app),
+                      "Data Format Error", error_message, ALERT_MSG_ERROR);
+  }
+
+  return json_boolean_value(field);
+}
+
+/**
  * @brief Parse a string from JSON, make it absolute, validate it, and
  *        copy into two global buffers.
  *
@@ -1054,6 +1125,10 @@ static gboolean launcher_init_config(GtkApplication *app) {
   parse_and_copy_string(app, launcher_config_json, "auth_url", auth_url_global);
   parse_and_copy_string(app, launcher_config_json, "server_list_url",
                         server_list_url_global);
+  parse_and_copy_string(app, launcher_config_json, "torrent_magnet_link",
+                        torrent_magnet_link);
+  parse_and_copy_string(app, launcher_config_json, "torrent_payload_file_name",
+                        torrent_file_name);
 
   load_and_validate_path_setting(app, launcher_config_json, "wine_prefix_name",
                                  wineprefix_global, wineprefix_default_global);
@@ -1062,10 +1137,17 @@ static gboolean launcher_init_config(GtkApplication *app) {
   load_and_validate_path_setting(app, launcher_config_json,
                                  "config_prefix_name", configprefix_global,
                                  nullptr);
+  load_and_validate_path_setting(app, launcher_config_json,
+                                 "torrent_prefix_name", torrentprefix_global,
+                                 nullptr);
+
   parse_and_copy_string(app, launcher_config_json, "game_lang",
                         game_lang_global);
   parse_and_copy_string(app, launcher_config_json, "service_name",
                         service_name_global);
+
+  torrent_download_enabled = parse_and_copy_bool(app, launcher_config_json,
+                                                 "torrent_download_enabled");
 
   json_decref(launcher_config_json);
   return true;

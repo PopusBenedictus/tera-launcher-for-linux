@@ -1,4 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
+
+# Newer cmake versions don't include the built in module to find boost libraries. So this
+# changes the behavior observed to that of the new specification when using newer cmake
+# versions to build the application.
+cmake_policy(SET CMP0167 NEW)
+
 project(tera_launcher_for_linux_gui C)
 
 set(CMAKE_C_STANDARD 23)
@@ -25,11 +31,13 @@ find_package(PkgConfig REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)  # For our asset fetching script
 find_package(SQLite3 REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system filesystem)
 
 pkg_check_modules(JANSSON REQUIRED jansson)
 pkg_check_modules(PROTOBUF_C REQUIRED libprotobuf-c)
 pkg_check_modules(GTK4 REQUIRED gtk4)
 pkg_check_modules(LIBSECRET REQUIRED libsecret-1)
+pkg_check_modules(LIBTORRENT REQUIRED libtorrent-rasterbar)
 
 add_compile_definitions(HAVE_GLIB=1)
 
@@ -38,6 +46,8 @@ include_directories(
         ${JANSSON_INCLUDE_DIRS}
         ${GTK4_INCLUDE_DIRS}
         ${LIBSECRET_INCLUDE_DIRS}
+        ${LIBTORRENT_INCLUDE_DIRS}
+        ${Boost_INCLUDE_DIRS}
 )
 
 #############################################
@@ -86,6 +96,7 @@ add_custom_target(gtk_build_resources DEPENDS ${GRESOURCE_C})
 add_executable(tera_launcher_for_linux
         ${CMAKE_CURRENT_SOURCE_DIR}/main.c
         ${CMAKE_CURRENT_SOURCE_DIR}/options_dialog.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/torrent_wrapper.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/updater.c
         ${CMAKE_CURRENT_SOURCE_DIR}/auth.c
         ${GRESOURCE_C}  # the generated file
@@ -97,6 +108,8 @@ target_link_libraries(tera_launcher_for_linux PRIVATE
         ${CURL_LIBRARIES}
         ${OPENSSL_LIBRARIES}
         ${LIBSECRET_LIBRARIES}
+        ${LIBTORRENT_LIBRARIES}
+        ${Boost_LIBRARIES}
         SQLite::SQLite3
         terautils
 )

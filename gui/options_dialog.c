@@ -770,7 +770,7 @@ void config_read_from_ini(void) {
     size_t needed;
     if (!str_copy_formatted(wine_base_dir_global, &needed,
                             FIXED_STRING_FIELD_SZ, "%s/%s", appdir_global,
-                            "/usr/lib/ge-proton/files")) {
+                            "usr/lib/ge-proton/files")) {
       g_error("Unable to specify path to bundled GE-Proton runtime. Cannot "
               "continue.");
     }

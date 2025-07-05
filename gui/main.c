@@ -5,7 +5,7 @@
  * http://www.wtfpl.net/ for more details.
  */
 
-#include "shared_struct_defs.h"
+#include "auth.h"
 #include "updater.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>
@@ -71,6 +71,17 @@ struct CurlResponse {
   char *data;
   size_t size;
 };
+
+/**
+ * @brief The username of the last successful login.
+ */
+char last_successful_login_username_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief The password of the last successful login. Note this is only populated
+ * when plaintext password storage is enabled.
+ */
+char last_successful_login_password_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief AppDir path, only used in when AppImage mode is enabled.
@@ -175,6 +186,18 @@ bool appimage_mode = false;
  * game itself. Turned off by default.
  */
 bool use_tera_toolbox = false;
+
+/**
+ * @brief If set to TRUE, attempt to store login info so it can be retrieved
+ * later.
+ */
+bool save_login_info = false;
+
+/**
+ * @brief If set to TRUE, read and write login info when user requests to store
+ * it to plain text.
+ */
+bool plaintext_login_info_storage = false;
 
 /**
  * @brief Used to store the final update thread message, if any, to update
@@ -335,7 +358,6 @@ static bool do_login(const char *username, const char *password,
         "Failed to allocate %zu bytes for postfields into buffer of %zu bytes.",
         required, FIXED_STRING_FIELD_SZ);
   }
-  g_message("Fields being sent: %s", postfields);
 
   // Set cURL options
   curl_easy_setopt(curl, CURLOPT_URL, auth_url_global);
@@ -344,7 +366,6 @@ static bool do_login(const char *username, const char *password,
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-  curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
   // Perform the request
   CURLcode res = curl_easy_perform(curl);
@@ -381,9 +402,6 @@ static bool do_login(const char *username, const char *password,
               out->user_no[sizeof(out->user_no) - 1] = '\0';
               out->auth_key[sizeof(out->auth_key) - 1] = '\0';
               out->character_count[sizeof(out->character_count) - 1] = '\0';
-
-              g_message("Login success: user_no=%s, AuthKey=%s, CharCount=%s",
-                        out->user_no, out->auth_key, out->character_count);
               success = true;
             } else {
               g_warning("Invalid JSON structure for login data.");
@@ -537,6 +555,15 @@ static GtkWidget *create_login_overlay(LauncherData *ld) {
   gtk_widget_set_margin_bottom(ld->pass_entry, 302);
   gtk_widget_add_css_class(ld->pass_entry, "img_textbox");
   gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->pass_entry);
+
+  // Toggle to store login info or not.
+  ld->login_store_checkbox = gtk_check_button_new_with_label("Remember Login?");
+  gtk_widget_set_halign(ld->login_store_checkbox, GTK_ALIGN_START);
+  gtk_widget_set_valign(ld->login_store_checkbox, GTK_ALIGN_END);
+  gtk_widget_set_margin_start(ld->login_store_checkbox, 68);
+  gtk_widget_set_margin_bottom(ld->login_store_checkbox, 264);
+  gtk_widget_add_css_class(ld->login_store_checkbox, "remember_me_checkbox");
+  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->login_store_checkbox);
 
   // Login Button
   GdkTexture *login_sub =
@@ -1008,6 +1035,8 @@ static gboolean launcher_init_config(GtkApplication *app) {
     return false;
 
   appimage_mode = g_getenv("APPIMAGE_MODE_ENABLED") != nullptr;
+  plaintext_login_info_storage =
+      g_getenv("TL4L_ENABLE_PLAINTEXT_PASSWORD_STORAGE") != nullptr;
   const gchar *appdir = g_getenv("APPDIR");
   size_t len;
   if (appimage_mode) {
@@ -1378,8 +1407,6 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
                                       const bool enable_wsi_fix,
                                       gchar **wine_path) {
   gchar **envp = g_get_environ();
-
-  /* ── 1. Locate the Wine binary ──────────────────────────────────────── */
   gchar *resolved_wine = nullptr;
 
   if (custom_wine_dir && *custom_wine_dir) {
@@ -1543,8 +1570,13 @@ static gchar **build_launch_argv(const gchar *exe_path,
 static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
                                          gpointer user_data) {
   UpdateThreadData *td = user_data;
-  td->wine_env_setup_success = g_spawn_check_wait_status(wait_status, nullptr);
+  GError *err = nullptr;
+  td->wine_env_setup_success = g_spawn_check_wait_status(wait_status, &err);
   td->wine_env_setup_done = true;
+  if (err) {
+    g_message("Winetricks exit code %i: %s", err->code, err->message);
+    g_error_free(err);
+  }
   g_spawn_close_pid(pid);
 }
 
@@ -1557,8 +1589,10 @@ static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
  */
 static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
   gchar *winetricks = g_find_program_in_path("winetricks");
-  if (!winetricks)
+  if (!winetricks) {
+    g_warning("Failed to find winetricks");
     return false;
+  }
 
   GPtrArray *argv = g_ptr_array_new();
   g_ptr_array_add(argv, g_strdup(winetricks));
@@ -1945,6 +1979,41 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
 
   LoginData temp = {0};
   if (do_login(username, password, &temp)) {
+    size_t required;
+    bool success;
+    if (gtk_check_button_get_active(
+            GTK_CHECK_BUTTON(ld->login_store_checkbox))) {
+      save_login_info = true;
+      success =
+          str_copy_formatted(last_successful_login_username_global, &required,
+                             FIXED_STRING_FIELD_SZ, "%s", username);
+      if (success) {
+        if (!plaintext_login_info_storage) {
+          if (!tl4l_store_account_password(username, password))
+            g_warning("Could not store password for account with username '%s'",
+                      username);
+        } else {
+          success = str_copy_formatted(last_successful_login_password_global,
+                                       &required, FIXED_STRING_FIELD_SZ, "%s",
+                                       password);
+          if (!success)
+            g_warning("Could not store password for account with username '%s'",
+                      username);
+        }
+        config_write_to_ini();
+      } else {
+        g_error("Failed to allocate %zu bytes for username in buffer of "
+                "size %zu bytes.",
+                required, FIXED_STRING_FIELD_SZ);
+      }
+    } else {
+      save_login_info = false;
+      memset(last_successful_login_username_global, 0, FIXED_STRING_FIELD_SZ);
+      if (!plaintext_login_info_storage)
+        tl4l_clear_account_password(username);
+      config_write_to_ini();
+    }
+
     // Store login data
     strncpy(ld->login_data.user_no, temp.user_no,
             sizeof(ld->login_data.user_no) - 1);
@@ -1954,10 +2023,9 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
             sizeof(ld->login_data.character_count) - 1);
 
     // Prepare user welcome label on patch screen.
-    size_t required;
-    const bool success = str_copy_formatted(ld->login_data.welcome_label_msg,
-                                            &required, FIXED_STRING_FIELD_SZ,
-                                            "Welcome, <b>%s!</b>", username);
+    success = str_copy_formatted(ld->login_data.welcome_label_msg, &required,
+                                 FIXED_STRING_FIELD_SZ, "Welcome, <b>%s!</b>",
+                                 username);
     if (!success) {
       g_error("Failed to allocate %zu bytes for welcome string in buffer of "
               "size %zu bytes.",
@@ -2164,6 +2232,12 @@ static void activate(GtkApplication *app, gpointer user_data) {
     }
   }
 
+  // Reset stored username if user chose to no longer store login information.
+  if (!save_login_info && strlen(last_successful_login_username_global) > 0) {
+    tl4l_clear_account_password(last_successful_login_username_global);
+    memset(last_successful_login_username_global, 0, FIXED_STRING_FIELD_SZ);
+  }
+
   // Write loaded configuration (and any changes applied above).
   config_write_to_ini();
 
@@ -2237,6 +2311,24 @@ static void activate(GtkApplication *app, gpointer user_data) {
                             GTK_EVENT_CONTROLLER(ld->login_controller));
   gtk_widget_add_controller(ld->patch_overlay,
                             GTK_EVENT_CONTROLLER(ld->patch_controller));
+  gtk_check_button_set_active(GTK_CHECK_BUTTON(ld->login_store_checkbox),
+                              save_login_info);
+
+  if (strlen(last_successful_login_username_global) > 0 && save_login_info) {
+    gchar *password;
+    if (plaintext_login_info_storage)
+      password = g_strdup(last_successful_login_password_global);
+    else
+      password =
+          tl4l_lookup_account_password(last_successful_login_username_global);
+    gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(ld->user_entry)),
+                              last_successful_login_username_global, -1);
+    if (password) {
+      gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(ld->pass_entry)),
+                                password, -1);
+      g_free(password);
+    }
+  }
 
   // Show the main window
   gtk_widget_set_visible(ld->window, TRUE);

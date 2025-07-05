@@ -2,4 +2,8 @@
 
 # Allow app to operate detached from the game directory.
 export APPIMAGE_MODE_ENABLED=1
+
+export XDG_DATA_DIRS="$APPDIR/usr/share:${XDG_DATA_DIRS:-}"
+export PATH="$APPDIR/usr/bin:${PATH:-}"
+export LD_LIBRARY_PATH="$APPDIR/usr/lib:${LD_LIBRARY_PATH:-}"
 exec "$APPDIR/usr/bin/tera_launcher_for_linux" "$@"

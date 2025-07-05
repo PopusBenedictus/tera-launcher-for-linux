@@ -29,6 +29,7 @@ find_package(SQLite3 REQUIRED)
 pkg_check_modules(JANSSON REQUIRED jansson)
 pkg_check_modules(PROTOBUF_C REQUIRED libprotobuf-c)
 pkg_check_modules(GTK4 REQUIRED gtk4)
+pkg_check_modules(LIBSECRET REQUIRED libsecret-1)
 
 add_compile_definitions(HAVE_GLIB=1)
 
@@ -36,6 +37,7 @@ include_directories(
         ${CURL_INCLUDE_DIRS}
         ${JANSSON_INCLUDE_DIRS}
         ${GTK4_INCLUDE_DIRS}
+        ${LIBSECRET_INCLUDE_DIRS}
 )
 
 #############################################
@@ -85,6 +87,7 @@ add_executable(tera_launcher_for_linux
         ${CMAKE_CURRENT_SOURCE_DIR}/main.c
         ${CMAKE_CURRENT_SOURCE_DIR}/options_dialog.c
         ${CMAKE_CURRENT_SOURCE_DIR}/updater.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/auth.c
         ${GRESOURCE_C}  # the generated file
 )
 add_dependencies(tera_launcher_for_linux gtk_build_resources)
@@ -93,6 +96,7 @@ target_link_libraries(tera_launcher_for_linux PRIVATE
         ${JANSSON_LIBRARIES}
         ${CURL_LIBRARIES}
         ${OPENSSL_LIBRARIES}
+        ${LIBSECRET_LIBRARIES}
         SQLite::SQLite3
         terautils
 )

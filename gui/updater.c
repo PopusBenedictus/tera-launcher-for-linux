@@ -1053,3 +1053,48 @@ void free_file_info(void *info) {
     g_free(f_info);
   }
 }
+
+void on_torrent_progress(float progress, uint64_t downloaded, uint64_t total,
+                         uint32_t download_rate, void *userdata) {
+  auto *data = (UpdateData *)userdata;
+  if (progress < 0.0f) {
+    data->torrent_download_done = true;
+    data->torrent_download_done = false;
+    return;
+  }
+
+  (void)downloaded;
+  (void)total;
+  (void)download_rate;
+  (void)userdata;
+}
+
+/**
+ * @brief Downloads and extracts base game files from a torrent download source.
+ * This has to be followed with a game files repair operation to verify file
+ * integrity as well as update the game files.
+ * @param data Update process state object.
+ * @return Returns TRUE if base game files are successfully acquired, otherwise
+ * returns FALSE.
+ */
+gboolean download_from_torrent(UpdateData *data) {
+  data->session = torrent_session_create(on_torrent_progress, data);
+  data->torrent_download_done = false;
+  data->torrent_download_success = false;
+
+  if (torrent_session_start_download(data->session, torrent_magnet_link,
+                                     torrentprefix_global) != 0) {
+    g_warning("Failed to start torrent download: %s",
+              torrent_session_get_error(data->session));
+    torrent_session_close(data->session);
+    return false;
+  }
+
+  while (!data->torrent_download_done) {
+    g_usleep(500000);
+  }
+
+  torrent_session_close(data->session);
+  data->session = nullptr;
+  return data->torrent_download_success;
+}

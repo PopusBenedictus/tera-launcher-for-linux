@@ -1570,8 +1570,13 @@ static gchar **build_launch_argv(const gchar *exe_path,
 static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
                                          gpointer user_data) {
   UpdateThreadData *td = user_data;
-  td->wine_env_setup_success = g_spawn_check_wait_status(wait_status, nullptr);
+  GError *err = nullptr;
+  td->wine_env_setup_success = g_spawn_check_wait_status(wait_status, &err);
   td->wine_env_setup_done = true;
+  if (err) {
+    g_message("Winetricks exit code %i: %s", err->code, err->message);
+    g_error_free(err);
+  }
   g_spawn_close_pid(pid);
 }
 
@@ -1584,8 +1589,10 @@ static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
  */
 static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
   gchar *winetricks = g_find_program_in_path("winetricks");
-  if (!winetricks)
+  if (!winetricks) {
+    g_warning("Failed to find winetricks");
     return false;
+  }
 
   GPtrArray *argv = g_ptr_array_new();
   g_ptr_array_add(argv, g_strdup(winetricks));

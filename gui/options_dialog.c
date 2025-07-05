@@ -759,6 +759,8 @@ void config_read_from_ini(void) {
   READ_STRING_KEY("gamescope_args", gamescope_args_global);
   READ_STRING_KEY("last_successful_login_username",
                   last_successful_login_username_global);
+  READ_STRING_KEY("last_successful_login_password",
+                  last_successful_login_password_global);
 
 #undef READ_STRING_KEY
   /* If wine_base_dir is unset in AppImage mode or contains a tmp path,
@@ -848,6 +850,12 @@ void config_write_to_ini(void) {
   WRITE_STRING_KEY("last_successful_login_username",
                    last_successful_login_username_global);
 #undef WRITE_STRING_KEY
+
+  // We do not write the password to the config file unless plain text storage
+  // is enabled.
+  if (last_successful_login_password_global && plaintext_login_info_storage)
+    g_key_file_set_string(keyfile, "Settings", "last_successful_login_password",
+                          last_successful_login_password_global);
 
   // Write boolean values (always written)
   g_key_file_set_boolean(keyfile, "Settings", "use_gamemoderun",

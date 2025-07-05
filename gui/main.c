@@ -1035,6 +1035,8 @@ static gboolean launcher_init_config(GtkApplication *app) {
     return false;
 
   appimage_mode = g_getenv("APPIMAGE_MODE_ENABLED") != nullptr;
+  plaintext_login_info_storage =
+      g_getenv("TL4L_ENABLE_PLAINTEXT_PASSWORD_STORAGE") != nullptr;
   const gchar *appdir = g_getenv("APPDIR");
   size_t len;
   if (appimage_mode) {
@@ -1981,11 +1983,19 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
           str_copy_formatted(last_successful_login_username_global, &required,
                              FIXED_STRING_FIELD_SZ, "%s", username);
       if (success) {
-        if (!tl4l_store_account_password(username, password))
-          g_warning("Could not store password for account with username '%s'",
-                    username);
-        else
-          config_write_to_ini();
+        if (!plaintext_login_info_storage) {
+          if (!tl4l_store_account_password(username, password))
+            g_warning("Could not store password for account with username '%s'",
+                      username);
+        } else {
+          success = str_copy_formatted(last_successful_login_password_global,
+                                       &required, FIXED_STRING_FIELD_SZ, "%s",
+                                       password);
+          if (!success)
+            g_warning("Could not store password for account with username '%s'",
+                      username);
+        }
+        config_write_to_ini();
       } else {
         g_error("Failed to allocate %zu bytes for username in buffer of "
                 "size %zu bytes.",
@@ -1994,7 +2004,8 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
     } else {
       save_login_info = false;
       memset(last_successful_login_username_global, 0, FIXED_STRING_FIELD_SZ);
-      tl4l_clear_account_password(username);
+      if (!plaintext_login_info_storage)
+        tl4l_clear_account_password(username);
       config_write_to_ini();
     }
 
@@ -2299,8 +2310,12 @@ static void activate(GtkApplication *app, gpointer user_data) {
                               save_login_info);
 
   if (strlen(last_successful_login_username_global) > 0 && save_login_info) {
-    gchar *password =
-        tl4l_lookup_account_password(last_successful_login_username_global);
+    gchar *password;
+    if (plaintext_login_info_storage)
+      password = g_strdup(last_successful_login_password_global);
+    else
+      password =
+          tl4l_lookup_account_password(last_successful_login_username_global);
     gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(ld->user_entry)),
                               last_successful_login_username_global, -1);
     if (password) {

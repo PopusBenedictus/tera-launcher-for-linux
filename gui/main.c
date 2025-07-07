@@ -9,6 +9,7 @@
 #include "updater.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>
+#include <gio/gio.h>
 #include <glib.h>
 #include <gtk/gtk.h>
 #include <jansson.h>
@@ -238,6 +239,65 @@ static GBytes *style_data_gbytes = nullptr;
  * @brief Data extracted from the embedded stylesheet resource for the GUI.
  */
 const static gchar *style_data = nullptr;
+
+static gboolean delete_directory(GFile *root, GError **error) {
+  GQueue *dirs = g_queue_new();
+  gboolean success = TRUE;
+
+  /* Start with the root dir (take a ref so we can unref later) */
+  g_queue_push_tail(dirs, g_object_ref(root));
+
+  while (success && !g_queue_is_empty(dirs)) {
+    GFile *dir = g_queue_pop_head(dirs);
+    GFileEnumerator *e =
+        g_file_enumerate_children(dir, "standard::name,standard::type",
+                                  G_FILE_QUERY_INFO_NONE, nullptr, error);
+
+    if (!e) {
+      g_object_unref(dir);
+      success = false;
+      break;
+    }
+
+    GFileInfo *info;
+    while (success &&
+           ((info = g_file_enumerator_next_file(e, nullptr, nullptr)))) {
+      const char *name = g_file_info_get_name(info);
+      GFile *child = g_file_get_child(dir, name);
+
+      if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
+        /* schedule subdir for later removal */
+        g_queue_push_tail(dirs, child);
+      } else {
+        if (!g_file_delete(child, nullptr, error))
+          success = false;
+        g_object_unref(child);
+      }
+
+      g_object_unref(info);
+    }
+
+    g_file_enumerator_close(e, nullptr, nullptr);
+    g_object_unref(e);
+
+    if (success) {
+      if (!g_file_delete(dir, nullptr, error))
+        success = false;
+      g_object_unref(dir);
+    }
+  }
+
+  if (!success) {
+    /* clean up any remaining GFile refs in the queue */
+    while (!g_queue_is_empty(dirs)) {
+      GFile *left = g_queue_pop_head(dirs);
+      g_object_unref(left);
+    }
+  }
+
+  g_queue_free(dirs);
+  return success;
+}
 
 /**
  * @brief Performs cleanup of a dialog when it's closed.

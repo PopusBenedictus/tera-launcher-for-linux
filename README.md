@@ -18,9 +18,7 @@ A community-created Linux launcher for TERA Online. This project is a **port** (
 * [Dependencies and Requirements](#dependencies-and-requirements)
 * [Docker Installation](#docker-installation)
 * [Building](#building)
-
     * [AppImage Mode (Recommended)](#appimage-mode-recommended)
-
         * [Optional Build Parameters](#optional-build-parameters)
     * [Standard Build (Option 2)](#standard-build-option-2)
 * [Configuring ](#configuring-launcher-configjson)[`launcher-config.json`](#configuring-launcher-configjson)
@@ -40,21 +38,28 @@ A community-created Linux launcher for TERA Online. This project is a **port** (
 
 ---
 
+Here’s an updated version of your README with all the requested changes:
+
+---
+
 ## Dependencies and Requirements
 
 To build and run this launcher natively, you will need:
 
 * **CMake** (version 3.16 or later)
 * A **C compiler** (e.g., `gcc`) and build tools (such as `make`)
-* **winegcc** (for building the stub-launcher component)
-* **Python 3** (used by a custom asset-fetching script)
+* **winegcc** (for building the stub‑launcher component)
+* **Python 3** (used by a custom asset‑fetching script)
 * **GTK4** development libraries
 * **libcurl** development libraries
 * **OpenSSL** development libraries
 * **SQLite3** development libraries
 * **jansson** development libraries
-* **libprotobuf-c** development libraries
+* **libprotobuf‑c** development libraries
 * **MiniXML** development libraries
+* **libsecret‑1** development libraries (for secure password storage; if no secrets provider is available, password storage will be disabled—see “Password Storage” below)
+* **libtorrent‑rasterbar** development libraries (for the built‑in torrent download feature)
+* **Boost** development libraries (at least `system` and `filesystem` components)
 * An internet connection (for asset fetching)
 
 This has been tested to build on:
@@ -63,9 +68,9 @@ This has been tested to build on:
 * Fedora 42 Workstation
 * Arch Linux
 
-> **Note:** If you only intend to build via **AppImage Mode**, you do **not** need to install these host dependencies locally — the Docker container provides all necessary tools and libraries.
+> **Note:** If you only intend to build via **AppImage Mode**, you do **not** need to install these host dependencies locally— the Docker container provides all necessary tools and libraries.
 
-### Ubuntu/Debian-based
+### Ubuntu/Debian‑based
 
 ```bash
 sudo apt update
@@ -73,17 +78,21 @@ sudo apt install build-essential cmake wine libwine-dev \
                  python3 python3-pip python3-setuptools \
                  libgtk-4-dev libcurl4-openssl-dev libssl-dev \
                  libsqlite3-dev libjansson-dev libprotobuf-c-dev \
-                 libmxml-dev pkg-config git
+                 libmxml-dev pkg-config git \
+                 libsecret-1-dev libtorrent-rasterbar-dev \
+                 libboost-system-dev libboost-filesystem-dev
 ```
 
-### Fedora/RHEL-based
+### Fedora/RHEL‑based
 
 ```bash
 sudo dnf install gcc gcc-c++ cmake make wine-devel \
                  python3 python3-pip python3-setuptools \
                  gtk4-devel libcurl-devel openssl-devel \
                  sqlite-devel jansson-devel protobuf-c-devel \
-                 mxml-devel pkg-config git
+                 mxml-devel pkg-config git \
+                 libsecret-devel libtorrent-rasterbar-devel \
+                 boost-devel
 ```
 
 ### Arch Linux
@@ -92,7 +101,8 @@ sudo dnf install gcc gcc-c++ cmake make wine-devel \
 sudo pacman -S base-devel cmake wine \
              python python-pip \
              gtk4 curl openssl sqlite jansson \
-             protobuf-c mxml pkgconf git
+             protobuf-c mxml pkgconf git \
+             libsecret libtorrent-rasterbar boost
 ```
 
 ---
@@ -195,19 +205,23 @@ Follow the original CMake-based instructions:
 
 ## Configuring `launcher-config.json`
 
-Before building, populate **all** values (except `public_launcher_assets`) in `launcher-config.json`:
+Before building, populate **all** values (except `public_launcher_assets`) in your `launcher-config.json` (values shown here are **generic**—replace with your own URLs and paths):
 
 ```json
 {
-  "auth_url":              "https://some.url/LauncherLoginAction",
-  "public_patch_url":      "https://some.url/public/patch",
-  "public_launcher_assets_url": "https://some.url/public/launcher/images",
-  "server_list_url":       "https://some.url/ServerList?lang=en",
+  "auth_url":                   "http://your.server/LauncherLoginAction",
+  "public_patch_url":           "http://your.server/public/patch",
+  "public_launcher_assets_url": "http://your.server/public/launcher/images",
+  "server_list_url":            "http://your.server/ServerList?lang=en",
 
-  "wine_prefix_name":      ".config_prefix_root/wineprefix",
-  "config_prefix_name":    ".config_prefix_root/config",
-  "game_prefix_name":      ".config_prefix_root/files",
-  "game_lang":             "EUR",
+  "wine_prefix_name":      ".yourapp/wineprefix",
+  "config_prefix_name":    ".yourapp/config",
+  "game_prefix_name":      ".yourapp/files",
+  "torrent_download_enabled":    true,
+  "torrent_prefix_name":         ".yourapp/torrent",
+  "torrent_magnet_link":         "magnet:?xt=urn:btih:YOUR_HASH&dn=Game.zip&tr=udp://tracker.openbittorrent.com:80/announce",
+  "torrent_payload_file_name":   "GameFiles.zip",
+  "game_lang":                   "EUR",
 
   "public_launcher_assets": [
     "bg.jpg",
@@ -216,11 +230,18 @@ Before building, populate **all** values (except `public_launcher_assets`) in `l
     "..."
   ],
 
-  "service_name":          "Your TERA Server"
+  "service_name": "Your TERA Server"
 }
 ```
 
-> **Note:** Outside AppImage Mode, `game_prefix_name` is ignored; `wine_prefix_name` and `config_prefix_name` are still honored. These are relative paths from your home directory.
+> **Torrent feature note:**
+>
+> * You **must** supply a **single ZIP file** (as `torrent_payload_file_name`) containing your game files.
+> * **Inside that ZIP**, all game files must live under **one top‑level folder** (e.g. `GameFiles/…`) for extraction to work correctly.
+
+> **AppImage feature note:**
+>
+> When using the AppImage version of the launcher, `game_prefix_name` is ignored; `wine_prefix_name`, `torrent_prefix_name` and `config_prefix_name` are still honored. These are relative paths from your home directory.
 
 ---
 
@@ -243,17 +264,39 @@ Before building, populate **all** values (except `public_launcher_assets`) in `l
 
 ## Usage
 
-* **Standard launcher:**
+### Standard launcher
+
+```bash
+./tera_launcher_for_linux
+```
+
+### AppImage launcher
+
+```bash
+chmod +x TERA_Launcher_for_Linux-x86_64.AppImage
+./TERA_Launcher_for_Linux-x86_64.AppImage
+```
+
+---
+
+### Password Storage
+
+By default, this launcher uses **libsecret** to store your account password securely.
+
+* **If no secrets provider is available**, password storage will simply be disabled and you’ll need to re‑enter your password each run.
+* **On platforms without a secrets service** (e.g., Steam Deck), you can force plaintext storage by setting:
 
   ```bash
-  ./tera_launcher_for_linux
+  export TL4L_ENABLE_PLAINTEXT_PASSWORD_STORAGE=1
   ```
 
-* **AppImage launcher:**
-
-  ```bash
-  ./TERA_Launcher_for_Linux-x86_64.AppImage
-  ```
+  > ⚠️ **Warning:** Plaintext storage is not secure.
+  >
+  > **In Steam:** If you add the launcher as a “Non‑Steam Game,” open its **Properties → Launch Options**, and prepend:
+  >
+  > ```
+  > TL4L_ENABLE_PLAINTEXT_PASSWORD_STORAGE=1 %command%
+  > ```
 
 You can customize the taskbar icon for the AppImage by replacing `appimage/assets/tera-launcher.png` with a 512×512 PNG of your choice. Do this before building the AppImage.
 

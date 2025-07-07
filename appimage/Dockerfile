@@ -9,6 +9,8 @@ RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y \
     libsqlite3-dev libjansson-dev libprotobuf-c-dev adwaita-icon-theme \
     libmxml-dev pkg-config git wget xz-utils gnome-themes-extra \
     libsecret-1-dev libsecret-1-0 libsecret-common libsecret-tools \
+    libtorrent-rasterbar-dev libtorrent-rasterbar2.0t64 \
+    libboost-filesystem-dev libboost-filesystem1.83.0 libarchive-tools \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build

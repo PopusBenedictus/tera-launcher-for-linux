@@ -103,7 +103,7 @@ copy_binaries_and_assets() {
   log "Copying launcher binaries and assets"
   cp "$BUILD_DIR/bin/"* "$APPDIR/usr/bin/"
   copy_tool() { local tool="$1"; log "Including system tool: $tool"; cp "$(command -v $tool)" "$APPDIR/usr/bin/"; }
-  for t in cabextract unzip 7z 7za 7zr pzstd unzstd zstd zstdcat zstdgrep zstdless zstdmt sh bash; do copy_tool "$t"; done
+  for t in cabextract unzip bsdtar 7z 7za 7zr pzstd unzstd zstd zstdcat zstdgrep zstdless zstdmt sh bash; do copy_tool "$t"; done
   cp -r /usr/lib/7zip "$APPDIR/usr/lib/"
   for asset in tera-launcher.desktop tera-launcher.png AppRun; do
     cp "$SRC_DIR/appimage/assets/$asset" "$APPDIR/$asset"

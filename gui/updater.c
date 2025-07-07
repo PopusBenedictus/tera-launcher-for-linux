@@ -74,7 +74,28 @@ typedef struct {
   char download_now[FIXED_STRING_FIELD_SZ];
   char download_total[FIXED_STRING_FIELD_SZ];
   char download_speed[FIXED_STRING_FIELD_SZ];
+  TorrentSession *session;
+  bool torrent_download_done;
+  bool torrent_download_success;
 } ProgressData;
+
+/**
+ * @brief Holds state for the asynchronous bsdtar extraction.
+ */
+typedef struct ExtractData {
+  ProgressCallback overall_cb; /**< Callback for overall progress (0.5→1.0). */
+  ProgressCallback stage_cb;   /**< Callback for per‑file progress (0.0→1.0). */
+  char pbar_label[FIXED_STRING_FIELD_SZ]; /**< Buffer for preparing file
+                                             extraction progress label */
+  gpointer user_data;      /**< Opaque pointer passed through to callbacks. */
+  guint total_entries;     /**< Total files to extract. */
+  guint processed;         /**< Files processed so far. */
+  GMainLoop *loop;         /**< Main loop we run & quit. */
+  gboolean success;        /**< TRUE if bsdtar exited cleanly. */
+  GIOChannel *stderr_chan; /**< Channel for bsdtar’s stderr. */
+  guint stderr_watch_id;   /**< Watch ID for stderr. */
+  guint child_watch_id;    /**< Watch ID for child‑exit. */
+} ExtractData;
 
 /* --- HELPER FUNCTIONS --- */
 
@@ -340,15 +361,227 @@ static gboolean extract_cabinet(const char *cabinet_path, const char *dest_path,
   return TRUE;
 }
 
+/**
+ * @brief Count entries in a ZIP archive via `bsdtar -tf`, synchronously.
+ *
+ * @param archive_path Absolute path to the ZIP file.
+ * @param error        Return location for a GError on failure.
+ * @return             Number of entries (lines), or 0 on error.
+ */
+static guint count_zip_entries(const char *archive_path, GError **error) {
+  /* Build argv */
+  GPtrArray *argv_array = g_ptr_array_new_with_free_func(g_free);
+  if (appimage_mode) {
+    g_ptr_array_add(argv_array,
+                    g_strdup_printf("%s/usr/bin/bsdtar", appdir_global));
+  } else {
+    g_ptr_array_add(argv_array, g_strdup("bsdtar"));
+  }
+  g_ptr_array_add(argv_array, g_strdup("-tf"));
+  g_ptr_array_add(argv_array, g_strdup(archive_path));
+  g_ptr_array_add(argv_array, nullptr);
+
+  const auto argv = (gchar **)g_ptr_array_free(argv_array, false);
+
+  /* Run bsdtar -tf, capture stdout/stderr */
+  gchar *stdout_buf = nullptr;
+  gchar *stderr_buf = nullptr;
+  gint exit_status = 0;
+  const gboolean ok =
+      g_spawn_sync(nullptr, argv, nullptr, G_SPAWN_SEARCH_PATH, nullptr,
+                   nullptr, &stdout_buf, &stderr_buf, &exit_status, error);
+  /* free argv */
+  g_strfreev(argv);
+
+  if (!ok || exit_status != 0) {
+    /* cleanup on error */
+    g_clear_error(error);
+    g_free(stdout_buf);
+    g_free(stderr_buf);
+    return 0;
+  }
+
+  /* Count non‑empty lines */
+  guint count = 0;
+  gchar **lines = g_strsplit(stdout_buf, "\n", -1);
+  for (gint i = 0; lines[i] != nullptr; i++) {
+    if (*lines[i] != '\0')
+      count++;
+  }
+  g_strfreev(lines);
+  g_free(stdout_buf);
+  g_free(stderr_buf);
+  return count;
+}
+
+/**
+ * @brief Called when bsdtar terminates: tear down sources, quit loop.
+ */
+static void on_extract_done(GPid pid, gint status, gpointer user_data) {
+  ExtractData *d = user_data;
+
+  if (d->stderr_watch_id) {
+    g_source_remove(d->stderr_watch_id);
+    d->stderr_watch_id = 0;
+  }
+  if (d->stderr_chan) {
+    g_io_channel_shutdown(d->stderr_chan, true, nullptr);
+    g_io_channel_unref(d->stderr_chan);
+    d->stderr_chan = nullptr;
+  }
+
+  if (d->child_watch_id) {
+    g_source_remove(d->child_watch_id);
+    d->child_watch_id = 0;
+  }
+
+  g_spawn_close_pid(pid);
+
+  d->success = (status == 0);
+  g_main_loop_quit(d->loop);
+}
+
+/**
+ * @brief Reads one filename from bsdtar’s stderr and updates progress.
+ *
+ * Stops watching when stderr hangs up.
+ */
+static gboolean on_extract_stderr(GIOChannel *chan, GIOCondition cond,
+                                  gpointer user_data) {
+  ExtractData *d = user_data;
+
+  if (cond & G_IO_IN) {
+    gchar *line = nullptr;
+    gsize len = 0;
+    GError *err = nullptr;
+
+    if (g_io_channel_read_line(chan, &line, &len, nullptr, &err) ==
+        G_IO_STATUS_NORMAL) {
+      g_strchomp(line);
+      d->processed++;
+      const float frac = (float)d->processed / (float)d->total_entries;
+      size_t required;
+      if (!str_copy_formatted(d->pbar_label, &required, FIXED_STRING_FIELD_SZ,
+                              "Extracted Files ( %u / %u )", d->processed,
+                              d->total_entries))
+        g_error("Unable to allocate %zu bytes for pbar label int buffer of %zu "
+                "bytes",
+                required, FIXED_STRING_FIELD_SZ);
+
+      d->stage_cb(frac, d->pbar_label, d->user_data);
+
+      d->overall_cb(0.5f + frac * 0.5f, "Extracting base game files",
+                    d->user_data);
+      g_free(line);
+    }
+    if (err) {
+      g_warning("Error reading extraction stderr: %s", err->message);
+      g_clear_error(&err);
+    }
+  }
+
+  /* On hangup or error, remove this watch */
+  if (cond & (G_IO_HUP | G_IO_ERR | G_IO_NVAL)) {
+    d->stderr_watch_id = 0;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @brief Extracts the torrent base archive with bsdtar and updates two progress
+ * bars.
+ *
+ * @param overall_cb  Callback for overall extraction progress (0.5->1.0).
+ * @param stage_cb    Callback for per‐file progress (0.0->1.0).
+ * @param user_data   Opaque pointer passed to both callbacks.
+ * @return            TRUE on success, FALSE on any failure.
+ */
+gboolean extract_torrent_base_files(ProgressCallback overall_cb,
+                                    ProgressCallback stage_cb,
+                                    gpointer user_data) {
+  GError *error = nullptr;
+  const auto d = g_new0(ExtractData, 1);
+  GPid pid;
+  gint stdin_fd, stdout_fd_unused, stderr_fd;
+
+  gchar *archive_path =
+      g_strdup_printf("%s/%s", torrentprefix_global, torrent_file_name);
+
+  d->total_entries = count_zip_entries(archive_path, &error);
+  if (d->total_entries == 0) {
+    g_warning("Failed to count archive entries");
+    g_clear_error(&error);
+    g_free(archive_path);
+    g_free(d);
+    return false;
+  }
+
+  d->overall_cb = overall_cb;
+  d->stage_cb = stage_cb;
+  d->user_data = user_data;
+  d->processed = 0;
+  d->loop = g_main_loop_new(nullptr, false);
+
+  overall_cb(0.5f, "Extracting base game files", user_data);
+  stage_cb(0.0f, "Starting extraction...", user_data);
+
+  GPtrArray *argv_array = g_ptr_array_new_with_free_func(g_free);
+  if (appimage_mode) {
+    g_ptr_array_add(argv_array,
+                    g_strdup_printf("%s/usr/bin/bsdtar", appdir_global));
+  } else {
+    g_ptr_array_add(argv_array, g_strdup("bsdtar"));
+  }
+  g_ptr_array_add(argv_array, g_strdup("-xvf"));
+  g_ptr_array_add(argv_array, g_strdup(archive_path));
+  g_ptr_array_add(argv_array, g_strdup("-C"));
+  g_ptr_array_add(argv_array, g_strdup(gameprefix_global));
+  g_ptr_array_add(argv_array, g_strdup("--strip-components=1"));
+  g_ptr_array_add(argv_array, nullptr);
+  const auto argv = (gchar **)g_ptr_array_free(argv_array, false);
+
+  if (!g_spawn_async_with_pipes(nullptr, argv, nullptr,
+                                G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_SEARCH_PATH,
+                                nullptr, nullptr, &pid, &stdin_fd,
+                                &stdout_fd_unused, &stderr_fd, &error)) {
+    g_warning("Failed to spawn bsdtar: %s", error->message);
+    g_clear_error(&error);
+    g_strfreev(argv);
+    g_free(archive_path);
+    g_free(d);
+    return false;
+  }
+  g_strfreev(argv);
+
+  /* Set up progress watcher */
+  d->stderr_chan = g_io_channel_unix_new(stderr_fd);
+  g_io_channel_set_encoding(d->stderr_chan, nullptr, nullptr);
+  g_io_channel_set_flags(d->stderr_chan, G_IO_FLAG_NONBLOCK, nullptr);
+  d->stderr_watch_id = g_io_add_watch(
+      d->stderr_chan, G_IO_IN | G_IO_HUP | G_IO_ERR, on_extract_stderr, d);
+
+  /* This watcher activates when bsdtar exits to unblock our loop */
+  d->child_watch_id = g_child_watch_add(pid, on_extract_done, d);
+
+  g_main_loop_run(d->loop);
+
+  g_main_loop_unref(d->loop);
+  g_free(archive_path);
+  g_free(d);
+
+  return d->success;
+}
+
 static gboolean download_version_ini(UpdateData *data) {
   /* Construct the URL to download the version.ini file. */
-  gchar *version_ini_url =
+  const gchar *version_ini_url =
       g_strdup_printf("%s/%s", data->public_patch_url, "version.ini");
 
   char *version_ini_path = download_file(version_ini_url, 0, nullptr);
   if (!version_ini_path) {
     g_printerr("Failed to download version.ini\n");
-    return FALSE;
+    return false;
   }
 
   GError *error = nullptr;
@@ -1052,4 +1285,95 @@ void free_file_info(void *info) {
     g_free(f_info->url);
     g_free(f_info);
   }
+}
+
+void on_torrent_progress(const float progress, const uint64_t downloaded,
+                         const uint64_t total, const uint32_t download_rate,
+                         void *userdata) {
+  ProgressData *data = userdata;
+
+  if (progress < 0.0f) {
+    data->torrent_download_done = true;
+    data->torrent_download_done = false;
+    update_progress(data->callback, 0.0, "Unable to download from torrent",
+                    data->user_data);
+    update_progress(data->download_callback, 0.0,
+                    "Falling back to download from update server",
+                    data->user_data);
+    return;
+  }
+
+  if (downloaded == total && total > 0) {
+    data->torrent_download_done = true;
+    data->torrent_download_success = true;
+    update_progress(data->callback, 0.5, "Extracting base game files",
+                    data->user_data);
+    update_progress(data->download_callback, 1.0, "This will take awhile",
+                    data->user_data);
+    return;
+  }
+
+  print_size((double)downloaded, data->download_now,
+             sizeof(data->download_now));
+  print_size((double)total, data->download_total, sizeof(data->download_total));
+  print_speed(download_rate, data->download_speed,
+              sizeof(data->download_speed));
+
+  constexpr size_t pbar_sz = sizeof(data->pbar_label);
+  size_t required;
+
+  const bool success = str_copy_formatted(
+      data->pbar_label, &required, pbar_sz, "Progress ( %s / %s ) %s",
+      data->download_now, data->download_total, data->download_speed);
+
+  if (!success) {
+    g_error("Failed to allocate %zu bytes for progress bar update into "
+            "buffer of %zu bytes.",
+            required, pbar_sz);
+  }
+
+  update_progress(data->download_callback, progress * 0.01f, data->pbar_label,
+                  data->user_data);
+}
+
+gboolean download_from_torrent(ProgressCallback callback,
+                               ProgressCallback download_callback,
+                               gpointer user_data) {
+  ProgressData pd = {nullptr};
+  pd.callback = callback;
+  pd.download_callback = download_callback;
+  pd.user_data = user_data;
+  pd.session = torrent_session_create(on_torrent_progress, &pd);
+  pd.torrent_download_done = false;
+  pd.torrent_download_success = false;
+
+  if (torrent_session_start_download(pd.session, torrent_magnet_link,
+                                     torrentprefix_global) != 0) {
+    g_warning("Failed to start torrent download: %s",
+              torrent_session_get_error(pd.session));
+    torrent_session_close(pd.session);
+    return false;
+  }
+
+  size_t required;
+  char overall_pbar_label[FIXED_STRING_FIELD_SZ];
+  const bool success = str_copy_formatted(
+      overall_pbar_label, &required, FIXED_STRING_FIELD_SZ,
+      "Downloading base game archive: %s", torrent_file_name);
+
+  if (!success) {
+    g_error("Failed to allocate %zu bytes for progress bar update into "
+            "buffer of %zu bytes.",
+            required, FIXED_STRING_FIELD_SZ);
+  }
+
+  update_progress(callback, 0.0, overall_pbar_label, pd.user_data);
+
+  while (!pd.torrent_download_done) {
+    g_usleep(500000);
+  }
+
+  torrent_session_close(pd.session);
+  pd.session = nullptr;
+  return pd.torrent_download_success;
 }

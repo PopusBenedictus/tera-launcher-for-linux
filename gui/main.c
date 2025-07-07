@@ -9,6 +9,7 @@
 #include "updater.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>
+#include <gio/gio.h>
 #include <glib.h>
 #include <gtk/gtk.h>
 #include <jansson.h>
@@ -129,6 +130,21 @@ char configprefix_global[FIXED_STRING_FIELD_SZ] = {0};
 char wine_base_dir_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
+ * @brief Torrent download directory folder name from embedded json resource.
+ */
+char torrentprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Torrent download file name from embedded json resource.
+ */
+char torrent_file_name[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Torrent download magnet link from embedded json resource.
+ */
+char torrent_magnet_link[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief Holds a copy of the patch url root.
  */
 char patch_url_global[FIXED_STRING_FIELD_SZ] = {0};
@@ -200,10 +216,23 @@ bool save_login_info = false;
 bool plaintext_login_info_storage = false;
 
 /**
+ * @brief If set to TRUE, when downloading game files _for the first time_,
+ * use the torrent download option, failing back to web server download
+ * if necessary. This is configured at compile time from embedded JSON resource.
+ */
+bool torrent_download_enabled = false;
+
+/**
  * @brief Used to store the final update thread message, if any, to update
  * progress bar label when the update resources are being thrown out.
  */
 static char update_finish_message[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Used to store torrent extraction status messages, if any, to
+ * update progress bar label when base game files are being extracted.
+ */
+static char update_torrent_message[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a reference to the GUI stylesheet from the embedded resources.
@@ -216,6 +245,65 @@ static GBytes *style_data_gbytes = nullptr;
  * @brief Data extracted from the embedded stylesheet resource for the GUI.
  */
 const static gchar *style_data = nullptr;
+
+static gboolean delete_directory(GFile *root, GError **error) {
+  GQueue *dirs = g_queue_new();
+  gboolean success = TRUE;
+
+  /* Start with the root dir (take a ref so we can unref later) */
+  g_queue_push_tail(dirs, g_object_ref(root));
+
+  while (success && !g_queue_is_empty(dirs)) {
+    GFile *dir = g_queue_pop_head(dirs);
+    GFileEnumerator *e =
+        g_file_enumerate_children(dir, "standard::name,standard::type",
+                                  G_FILE_QUERY_INFO_NONE, nullptr, error);
+
+    if (!e) {
+      g_object_unref(dir);
+      success = false;
+      break;
+    }
+
+    GFileInfo *info;
+    while (success &&
+           ((info = g_file_enumerator_next_file(e, nullptr, nullptr)))) {
+      const char *name = g_file_info_get_name(info);
+      GFile *child = g_file_get_child(dir, name);
+
+      if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
+        /* schedule subdir for later removal */
+        g_queue_push_tail(dirs, child);
+      } else {
+        if (!g_file_delete(child, nullptr, error))
+          success = false;
+        g_object_unref(child);
+      }
+
+      g_object_unref(info);
+    }
+
+    g_file_enumerator_close(e, nullptr, nullptr);
+    g_object_unref(e);
+
+    if (success) {
+      if (!g_file_delete(dir, nullptr, error))
+        success = false;
+      g_object_unref(dir);
+    }
+  }
+
+  if (!success) {
+    /* clean up any remaining GFile refs in the queue */
+    while (!g_queue_is_empty(dirs)) {
+      GFile *left = g_queue_pop_head(dirs);
+      g_object_unref(left);
+    }
+  }
+
+  g_queue_free(dirs);
+  return success;
+}
 
 /**
  * @brief Performs cleanup of a dialog when it's closed.
@@ -976,6 +1064,55 @@ static void parse_and_copy_string(GtkApplication *app,
 }
 
 /**
+ * @brief Retrieve a bool value by key from the JSON object and copy it into
+ * the given buffer.
+ *
+ * If the key is missing or not a bool, a fatal error dialog is shown and the
+ * application quits.
+ *
+ * @param app                  The GtkApplication to use for showing fatal
+ * errors.
+ * @param launcher_config_json The JSON object to read from.
+ * @param key                  The JSON key to look up.
+ */
+static bool parse_and_copy_bool(GtkApplication *app,
+                                const json_t *launcher_config_json,
+                                const char *key) {
+  json_t *field = json_object_get(launcher_config_json, key);
+  if (!field) {
+    size_t required;
+    char error_message[FIXED_STRING_FIELD_SZ] = {0};
+    const bool success =
+        str_copy_formatted(error_message, &required, FIXED_STRING_FIELD_SZ,
+                           "Could not parse key: %s", key);
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for error message into buffer of "
+              "%zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
+    }
+    show_alert_dialog(gtk_application_get_active_window(app), "Data Error",
+                      error_message, ALERT_MSG_ERROR);
+  }
+
+  if (!json_is_boolean(field)) {
+    size_t required;
+    char error_message[FIXED_STRING_FIELD_SZ] = {0};
+    const bool success =
+        str_copy_formatted(error_message, &required, FIXED_STRING_FIELD_SZ,
+                           "Key '%s' is not a valid string.", key);
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for error message into buffer of "
+              "%zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
+    }
+    show_alert_dialog(gtk_application_get_active_window(app),
+                      "Data Format Error", error_message, ALERT_MSG_ERROR);
+  }
+
+  return json_boolean_value(field);
+}
+
+/**
  * @brief Parse a string from JSON, make it absolute, validate it, and
  *        copy into two global buffers.
  *
@@ -1054,6 +1191,10 @@ static gboolean launcher_init_config(GtkApplication *app) {
   parse_and_copy_string(app, launcher_config_json, "auth_url", auth_url_global);
   parse_and_copy_string(app, launcher_config_json, "server_list_url",
                         server_list_url_global);
+  parse_and_copy_string(app, launcher_config_json, "torrent_magnet_link",
+                        torrent_magnet_link);
+  parse_and_copy_string(app, launcher_config_json, "torrent_payload_file_name",
+                        torrent_file_name);
 
   load_and_validate_path_setting(app, launcher_config_json, "wine_prefix_name",
                                  wineprefix_global, wineprefix_default_global);
@@ -1062,10 +1203,17 @@ static gboolean launcher_init_config(GtkApplication *app) {
   load_and_validate_path_setting(app, launcher_config_json,
                                  "config_prefix_name", configprefix_global,
                                  nullptr);
+  load_and_validate_path_setting(app, launcher_config_json,
+                                 "torrent_prefix_name", torrentprefix_global,
+                                 nullptr);
+
   parse_and_copy_string(app, launcher_config_json, "game_lang",
                         game_lang_global);
   parse_and_copy_string(app, launcher_config_json, "service_name",
                         service_name_global);
+
+  torrent_download_enabled = parse_and_copy_bool(app, launcher_config_json,
+                                                 "torrent_download_enabled");
 
   json_decref(launcher_config_json);
   return true;
@@ -1139,6 +1287,26 @@ static gboolean progress_bar_final_callback(gpointer data) {
 }
 
 /**
+ * @brief Used when we want to reset progress bar state after torrent data
+ * extraction completes.
+ * @param data A pointer to an instance of update thread data.
+ * @return Whether to kill the signal that fired this callback off or not.
+ */
+static gboolean progress_bar_final_torrent_callback(gpointer data) {
+  const UpdateThreadData *td = data;
+  if (strlen(update_torrent_message) != 0) {
+    gtk_progress_bar_set_fraction(td->update_data.progress_bar, 1.0);
+    gtk_progress_bar_set_text(td->update_data.progress_bar,
+                              update_torrent_message);
+    gtk_progress_bar_set_fraction(td->update_data.download_progress_bar, 0.0);
+    gtk_progress_bar_set_text(td->update_data.download_progress_bar, "");
+    memset(update_torrent_message, 0, sizeof(update_torrent_message));
+  }
+
+  return FALSE;
+}
+
+/**
  * @brief Callback function for marshalling button status updates on the GUI
  * @param data A pointer to an instance of update thread data.
  */
@@ -1194,16 +1362,103 @@ static gpointer update_thread_func(gpointer data) {
   }
 
   UpdateData *update_data = &ut_data->update_data;
+  ut_data->window_minimized = false;
 
-  // Step 2: Get files to update (may become repair task if conditions align to
-  // require it or is requested)
+  // Check if base game files exist. If they don't, we will try to download them
+  // using the torrent source first.
+  bool torrent_download_success = false;
+  bool do_torrent_download = false;
+  if (torrent_download_enabled) {
+    bool torrentprefix_exists = false;
+    if (!g_file_test(torrentprefix_global,
+                     G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)) {
+      if (g_mkdir_with_parents(torrentprefix_global, 0755) == 0) {
+        torrentprefix_exists = true;
+      } else {
+        g_warning("Unable to create torrent data directory.");
+      }
+    } else {
+      torrentprefix_exists = true;
+    }
+
+    if (g_file_test(gameprefix_global,
+                    G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)) {
+      GError *error;
+      GDir *dir = g_dir_open(gameprefix_global, 0, &error);
+      if (!dir) {
+        if (g_mkdir_with_parents(gameprefix_global, 0755) == 0) {
+          do_torrent_download = true;
+        } else {
+          g_warning("Unable to create new game files directory.");
+        }
+      } else {
+        const gchar *entry = g_dir_read_name(dir);
+        g_dir_close(dir);
+        if (!entry) {
+          do_torrent_download = true;
+        }
+      }
+    } else {
+      if (g_mkdir_with_parents(gameprefix_global, 0755) == 0) {
+        do_torrent_download = true;
+      } else {
+        g_warning("Unable to create new game files directory.");
+      }
+    }
+
+    if (do_torrent_download && torrentprefix_exists) {
+      torrent_download_success = download_from_torrent(
+          update_progress_callback, update_download_progress_callback, ut_data);
+    } else {
+      g_warning("Skipping torrent downloads attempt either because its not "
+                "enabled or "
+                "we were unable to prepare the torrent prefix directory.");
+    }
+  }
+
+  // Extract the game files payload if download was successful
+  if (torrent_download_enabled && torrent_download_success) {
+    g_warning("Attempting to extract base game files.");
+    if (extract_torrent_base_files(update_progress_callback,
+                                   update_download_progress_callback,
+                                   ut_data)) {
+      strcpy(update_torrent_message, "Base game files extracted. Validating.");
+      g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_final_torrent_callback,
+                      ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
+      GFile *dir = g_file_new_for_path(torrentprefix_global);
+      GError *error = nullptr;
+
+      if (!delete_directory(dir, &error)) {
+        g_warning("Couldn't clean up old torrent data: %s", error->message);
+        g_clear_error(&error);
+      }
+      g_object_unref(dir);
+
+      g_usleep(2000000);
+    } else {
+      g_usleep(1000000);
+      strcpy(update_torrent_message,
+             "Base game files extraction error. Repairing.");
+      g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_final_torrent_callback,
+                      ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
+      g_usleep(2000000);
+    }
+  } else {
+    g_warning("Failed to download and extract torrent base game files.");
+  }
+
   GList *files_to_update;
-  if (ut_data->repair_requested)
+  if (torrent_download_enabled && do_torrent_download) {
     files_to_update =
         get_files_to_repair(update_data, update_progress_callback, ut_data);
-  else
-    files_to_update =
-        get_files_to_update(update_data, update_progress_callback, ut_data);
+  } else {
+    if (ut_data->repair_requested)
+      files_to_update =
+          get_files_to_repair(update_data, update_progress_callback, ut_data);
+    else
+      files_to_update =
+          get_files_to_update(update_data, update_progress_callback, ut_data);
+  }
 
   if (!files_to_update) {
     ut_data->play_button_enabled = TRUE;
@@ -1216,7 +1471,7 @@ static gpointer update_thread_func(gpointer data) {
     return nullptr;
   }
 
-  // Step 3: Download all files
+  // Download all requested files.
   if (!download_all_files(update_data, files_to_update,
                           update_progress_callback,
                           update_download_progress_callback, ut_data)) {

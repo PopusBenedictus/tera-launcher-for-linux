@@ -3,7 +3,9 @@ cmake_minimum_required(VERSION 3.16)
 # Newer cmake versions don't include the built in module to find boost libraries. So this
 # changes the behavior observed to that of the new specification when using newer cmake
 # versions to build the application.
-cmake_policy(SET CMP0167 NEW)
+if (POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
 
 project(tera_launcher_for_linux_gui C)
 

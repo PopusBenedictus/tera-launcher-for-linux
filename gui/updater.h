@@ -67,6 +67,26 @@ gboolean download_from_torrent(ProgressCallback callback,
                                ProgressCallback download_callback,
                                gpointer user_data);
 
+/**
+ * @brief Extracts torrent base files using bsdtar and updates progress.
+ *
+ * This function spawns `bsdtar -xvf … --strip-components=1` to unpack the
+ * downloaded torrent archive, and drives two progress bars:
+ *   - overall_cb goes from 0.5 → 1.0 over the entire extraction.
+ *   - stage_cb   goes from 0.0 → 1.0 for each file as it’s extracted.
+ *
+ * @param overall_cb    Callback invoked for overall extraction progress
+ *                      (fraction between 0.5 and 1.0).
+ * @param stage_cb      Callback invoked per‑file to indicate stage progress
+ *                      (fraction between 0.0 and 1.0).
+ * @param user_data     Pointer passed through to both callbacks.
+ * @return               TRUE if extraction completed successfully,
+ *                       FALSE on any error.
+ */
+gboolean extract_torrent_base_files(ProgressCallback overall_cb,
+                                    ProgressCallback stage_cb,
+                                    gpointer user_data);
+
 // Utility function to free FileInfo
 void free_file_info(void *info);
 

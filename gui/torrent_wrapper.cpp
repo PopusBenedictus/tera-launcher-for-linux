@@ -81,7 +81,7 @@ torrent_session_create(const TorrentProgressCallback progress_cb,
                        void *userdata) {
   using namespace lt;
   try {
-    settings_pack pack;
+    settings_pack pack = lt::default_settings();
     pack.set_int(settings_pack::alert_mask, alert_category::error |
                                                 alert_category::storage |
                                                 alert_category::status);

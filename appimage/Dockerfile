@@ -11,6 +11,7 @@ RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y \
     libsecret-1-dev libsecret-1-0 libsecret-common libsecret-tools \
     libtorrent-rasterbar-dev libtorrent-rasterbar2.0t64 \
     libboost-filesystem-dev libboost-filesystem1.83.0 libarchive-tools \
+    gsettings-desktop-schemas-dev gsettings-ubuntu-schemas xdg-desktop-portal-gtk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build

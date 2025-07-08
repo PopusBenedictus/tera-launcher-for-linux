@@ -1364,6 +1364,15 @@ static gpointer update_thread_func(gpointer data) {
   UpdateData *update_data = &ut_data->update_data;
   ut_data->window_minimized = false;
 
+  char binaries_test_path[FIXED_STRING_FIELD_SZ];
+  size_t required;
+  if (!str_copy_formatted(binaries_test_path, &required, FIXED_STRING_FIELD_SZ,
+                          "%s/Binaries/TERA.exe", gameprefix_global))
+    g_error("Unable to allocate %zu bytes for path into buffer of %zu bytes.",
+            required, FIXED_STRING_FIELD_SZ);
+  const bool binary_present = g_file_test(
+      binaries_test_path, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_REGULAR);
+
   // Check if base game files exist. If they don't, we will try to download them
   // using the torrent source first.
   bool torrent_download_success = false;
@@ -1381,6 +1390,16 @@ static gpointer update_thread_func(gpointer data) {
       torrentprefix_exists = true;
     }
 
+    if (!appimage_mode) {
+      gchar *gameprefix = g_get_current_dir();
+      if (!str_copy_formatted(gameprefix_global, &required,
+                              FIXED_STRING_FIELD_SZ, "%s", gameprefix))
+        g_error("Unable to allocate %zu bytes into global gameprefix buffer of "
+                "%zu bytes",
+                required, FIXED_STRING_FIELD_SZ);
+      g_free(gameprefix);
+    }
+
     if (g_file_test(gameprefix_global,
                     G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)) {
       GError *error;
@@ -1394,12 +1413,14 @@ static gpointer update_thread_func(gpointer data) {
       } else {
         const gchar *entry = g_dir_read_name(dir);
         g_dir_close(dir);
-        if (!entry) {
+        if ((appimage_mode && !entry) || (!appimage_mode && !binary_present)) {
           do_torrent_download = true;
         }
       }
     } else {
-      if (g_mkdir_with_parents(gameprefix_global, 0755) == 0) {
+      if (binary_present) {
+        do_torrent_download = false;
+      } else if (g_mkdir_with_parents(gameprefix_global, 0755) == 0) {
         do_torrent_download = true;
       } else {
         g_warning("Unable to create new game files directory.");
@@ -1410,9 +1431,10 @@ static gpointer update_thread_func(gpointer data) {
       torrent_download_success = download_from_torrent(
           update_progress_callback, update_download_progress_callback, ut_data);
     } else {
-      g_warning("Skipping torrent downloads attempt either because its not "
-                "enabled or "
-                "we were unable to prepare the torrent prefix directory.");
+      if (!binary_present)
+        g_warning("Skipping torrent downloads attempt either because its not "
+                  "enabled or "
+                  "we were unable to prepare the torrent prefix directory.");
     }
   }
 
@@ -1444,7 +1466,8 @@ static gpointer update_thread_func(gpointer data) {
       g_usleep(2000000);
     }
   } else {
-    g_warning("Failed to download and extract torrent base game files.");
+    if (!binary_present)
+      g_warning("Failed to download and extract torrent base game files.");
   }
 
   GList *files_to_update;

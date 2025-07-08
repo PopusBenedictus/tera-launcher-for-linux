@@ -36,12 +36,6 @@ A community-created Linux launcher for TERA Online. This project is a **port** (
 * Automatic game client patching and update checks.
 * Modular build using CMake and subprojects for easy maintenance.
 
----
-
-Here’s an updated version of your README with all the requested changes:
-
----
-
 ## Dependencies and Requirements
 
 To build and run this launcher natively, you will need:
@@ -49,6 +43,8 @@ To build and run this launcher natively, you will need:
 * **CMake** (version 3.16 or later)
 * A **C compiler** (e.g., `gcc`) and build tools (such as `make`)
 * **winegcc** (for building the stub‑launcher component)
+* **winetricks**, along with **cabextract**, **unzip** and **p7zip** to support it
+* **bsdtar** for game files extraction when torrent download is enabled
 * **Python 3** (used by a custom asset‑fetching script)
 * **GTK4** development libraries
 * **libcurl** development libraries
@@ -78,7 +74,7 @@ sudo apt install build-essential cmake wine libwine-dev \
                  python3 python3-pip python3-setuptools \
                  libgtk-4-dev libcurl4-openssl-dev libssl-dev \
                  libsqlite3-dev libjansson-dev libprotobuf-c-dev \
-                 libmxml-dev pkg-config git \
+                 libmxml-dev pkg-config git winetricks libarchive-tools \
                  libsecret-1-dev libtorrent-rasterbar-dev \
                  libboost-system-dev libboost-filesystem-dev
 ```
@@ -90,7 +86,7 @@ sudo dnf install gcc gcc-c++ cmake make wine-devel \
                  python3 python3-pip python3-setuptools \
                  gtk4-devel libcurl-devel openssl-devel \
                  sqlite-devel jansson-devel protobuf-c-devel \
-                 mxml-devel pkg-config git \
+                 mxml-devel pkg-config git winetricks libarchive \
                  libsecret-devel libtorrent-rasterbar-devel \
                  boost-devel
 ```
@@ -99,9 +95,9 @@ sudo dnf install gcc gcc-c++ cmake make wine-devel \
 
 ```bash
 sudo pacman -S base-devel cmake wine \
-             python python-pip \
+             python python-pip winetricks \
              gtk4 curl openssl sqlite jansson \
-             protobuf-c mxml pkgconf git \
+             protobuf-c mxml pkgconf git  libarchive \
              libsecret libtorrent-rasterbar boost
 ```
 

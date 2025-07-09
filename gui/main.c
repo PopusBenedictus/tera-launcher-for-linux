@@ -991,6 +991,8 @@ static json_t *load_launcher_config_json(GtkApplication *app,
     if (error) {
       g_error_free(error);
     }
+
+    g_free(launcher_config_gbytes);
     return nullptr;
   }
 
@@ -1003,12 +1005,16 @@ static json_t *load_launcher_config_json(GtkApplication *app,
     if (error) {
       g_error_free(error);
     }
+
+    g_free(launcher_config_gbytes);
     return nullptr;
   }
 
   if (error) {
     g_error_free(error);
   }
+
+  g_free(launcher_config_gbytes);
   return config_json;
 }
 
@@ -1363,6 +1369,7 @@ static gpointer update_thread_func(gpointer data) {
 
   UpdateData *update_data = &ut_data->update_data;
   ut_data->window_minimized = false;
+  ut_data = ut_data_ref(ut_data);
 
   char binaries_test_path[FIXED_STRING_FIELD_SZ];
   size_t required;
@@ -1491,6 +1498,7 @@ static gpointer update_thread_func(gpointer data) {
                     ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, button_status_callback,
                     ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
+    ut_data_unref(ut_data);
     return nullptr;
   }
 
@@ -1503,6 +1511,7 @@ static gpointer update_thread_func(gpointer data) {
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, button_status_callback,
                     ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
     g_list_free_full(files_to_update, free_file_info);
+    ut_data_unref(ut_data);
     return nullptr;
   }
 
@@ -1514,6 +1523,7 @@ static gpointer update_thread_func(gpointer data) {
   ut_data->repair_button_enabled = TRUE;
   g_idle_add_full(G_PRIORITY_HIGH_IDLE, button_status_callback,
                   ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
+  ut_data_unref(ut_data);
   return nullptr;
 }
 
@@ -1555,6 +1565,14 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
     gtk_widget_set_sensitive(ld->play_btn, TRUE);
     return;
   }
+
+  memset(thread_data, 0, sizeof(UpdateThreadData));
+  thread_data->play_button_enabled = false;
+  thread_data->repair_button_enabled = false;
+  thread_data->enable_pulse = false;
+  thread_data->window_minimized = false;
+  thread_data->window_sensitive = false;
+
 
   // Share patch URL and game path in UpdateData for update functions to do
   // their thing.

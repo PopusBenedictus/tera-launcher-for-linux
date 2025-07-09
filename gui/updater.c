@@ -225,7 +225,9 @@ static char *compute_file_md5(const char *filepath) {
   }
   g_checksum_update(checksum, (const guchar *)contents, length);
   g_free(contents);
-  return g_strdup(g_checksum_get_string(checksum));
+  char *retval = g_strdup(g_checksum_get_string(checksum));
+  g_free(checksum);
+  return retval;
 }
 
 /*
@@ -567,10 +569,11 @@ gboolean extract_torrent_base_files(ProgressCallback overall_cb,
   g_main_loop_run(d->loop);
 
   g_main_loop_unref(d->loop);
+  gboolean retval = d->success;
   g_free(archive_path);
   g_free(d);
 
-  return d->success;
+  return retval;
 }
 
 static gboolean download_version_ini(UpdateData *data) {
@@ -782,7 +785,7 @@ static gboolean parse_version_ini() {
     strcpy(ini_path, "version.ini");
   }
 
-  if (!g_key_file_load_from_file(key_file, ini_path, G_KEY_FILE_NONE, &error)) {
+  if (!g_key_file_load_from_file(key_file, ini_path, G_KEY_FILE_NONE, nullptr)) {
     g_object_unref(key_file);
     return FALSE;
   }
@@ -1054,6 +1057,7 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
         GError *error = nullptr;
         if (!g_file_delete(busted_file, nullptr, &error)) {
           // TODO: See earlier TODO.
+          g_free(busted_file);
           g_printerr("Unable to delete '%s': %s", processed_path,
                      error->message);
           g_clear_error(&error);
@@ -1191,7 +1195,7 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
     /* Download the cabinet file for the update.
        Validate that the downloaded file size matches the expected compressed
        size. */
-    ProgressData p_data;
+    ProgressData p_data = {nullptr};
     p_data.callback = callback;
     p_data.download_callback = download_callback;
     p_data.prefix_string = progress_msg;

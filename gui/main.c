@@ -1221,6 +1221,8 @@ static gboolean launcher_init_config(GtkApplication *app) {
   torrent_download_enabled = parse_and_copy_bool(app, launcher_config_json,
                                                  "torrent_download_enabled");
 
+  torrent_download_enabled = !g_getenv("TL4L_DISABLE_TORRENT_DOWNLOAD") ? torrent_download_enabled : false;
+
   json_decref(launcher_config_json);
   return true;
 }

@@ -1707,10 +1707,17 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
                                       gchar **wine_path) {
   gchar **envp = g_get_environ();
   gchar *resolved_wine = nullptr;
+  const gchar *target_wine_dir;
+  if (appdir_global && !custom_wine_dir) {
+    config_read_from_ini();
+    target_wine_dir = wine_base_dir_global;
+  } else {
+    target_wine_dir = custom_wine_dir;
+  }
 
-  if (custom_wine_dir && *custom_wine_dir) {
+  if (target_wine_dir && *target_wine_dir) {
     /* <custom>/bin/wine must exist and be executable */
-    resolved_wine = g_build_filename(custom_wine_dir, "bin", "wine", nullptr);
+    resolved_wine = g_build_filename(target_wine_dir, "bin", "wine", nullptr);
     if (!g_file_test(resolved_wine, G_FILE_TEST_IS_EXECUTABLE)) {
       g_warning("Custom Wine build not found or not executable: %s",
                 resolved_wine);
@@ -1721,7 +1728,7 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
 
     /* Pre‑pend <custom>/bin to PATH */
     const gchar *old_path = g_environ_getenv(envp, "PATH");
-    gchar *wine_bin_path = g_build_filename(custom_wine_dir, "bin", nullptr);
+    gchar *wine_bin_path = g_build_filename(target_wine_dir, "bin", nullptr);
 
     GString *new_path = g_string_new(wine_bin_path);
     g_string_append_c(new_path, G_SEARCHPATH_SEPARATOR);
@@ -1734,8 +1741,8 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
     /* Also fix‑up LD_LIBRARY_PATH so Wine can find its own libs */
     const gchar *old_ld = g_environ_getenv(envp, "LD_LIBRARY_PATH");
     GString *new_ld = g_string_new("");
-    g_string_append_printf(new_ld, "%s/lib:%s/lib64", custom_wine_dir,
-                           custom_wine_dir);
+    g_string_append_printf(new_ld, "%s/lib:%s/lib64", target_wine_dir,
+                           target_wine_dir);
     if (old_ld && *old_ld) {
       g_string_append_c(new_ld, ':');
       g_string_append(new_ld, old_ld);
@@ -1743,9 +1750,9 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
     envp = g_environ_setenv(envp, "LD_LIBRARY_PATH", new_ld->str, true);
 
     /* Tell Wine where its helper binaries live */
-    gchar *loader = g_build_filename(custom_wine_dir, "bin", "wine", nullptr);
+    gchar *loader = g_build_filename(target_wine_dir, "bin", "wine", nullptr);
     gchar *server =
-        g_build_filename(custom_wine_dir, "bin", "wineserver", nullptr);
+        g_build_filename(target_wine_dir, "bin", "wineserver", nullptr);
     envp = g_environ_setenv(envp, "WINELOADER", loader, true);
     /* WINE env is used by winetricks, WINELOADER is for the stub launcher */
     envp = g_environ_setenv(envp, "WINE", loader, true);

@@ -24,7 +24,6 @@ struct TorrentSession {
 
 static void torrent_download_thread(TorrentSession *ts) {
   using namespace lt;
-  bool done = false;
   while (true) {
     if (ts->should_stop.load())
       break;
@@ -36,14 +35,13 @@ static void torrent_download_thread(TorrentSession *ts) {
       }
       if (const auto st = alert_cast<state_update_alert>(a)) {
         if (!st->status.empty()) {
-          const torrent_status &status = st->status[0];
-          float progress_percent = status.progress * 100.0f;
-          progress_percent = std::clamp(progress_percent, 0.0f, 100.0f);
-          const uint64_t downloaded = status.total_wanted_done;
-          const uint64_t total = status.total_wanted;
-          const uint32_t rate = status.download_payload_rate;
+          const torrent_status &s = st->status[0];
+          const float progress = std::clamp(s.progress * 100.0f, 0.0f, 100.0f);
+          const uint64_t downloaded = s.total_wanted_done;
+          const uint64_t total = s.total_wanted;
+          const uint32_t rate = s.download_payload_rate;
           if (ts->progress_cb) {
-            ts->progress_cb(progress_percent, downloaded, total, rate,
+            ts->progress_cb(progress, downloaded, total, rate,
                             ts->progress_userdata);
           }
         }
@@ -54,7 +52,8 @@ static void torrent_download_thread(TorrentSession *ts) {
           ts->progress_cb(100.0f, s.total_wanted_done, s.total_wanted, 0,
                           ts->progress_userdata);
         }
-        done = true;
+        ts->should_stop.store(true);
+        break;
       }
       if (const auto te = alert_cast<torrent_error_alert>(a)) {
         ts->error_message = te->error.message().empty()
@@ -66,22 +65,20 @@ static void torrent_download_thread(TorrentSession *ts) {
         if (ts->torrent_handle.is_valid()) {
           ts->session->remove_torrent(ts->torrent_handle);
         }
-        done = true;
+        ts->should_stop.store(true);
+        break;
       }
     }
-    if (done || ts->should_stop.load())
-      break;
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     ts->session->post_torrent_updates();
   }
 }
 
-TorrentSession *
-torrent_session_create(const TorrentProgressCallback progress_cb,
-                       void *userdata) {
+TorrentSession *torrent_session_create(const TorrentProgressCallback progress_cb,
+                                       void *userdata) {
   using namespace lt;
   try {
-    settings_pack pack = lt::default_settings();
+    settings_pack pack = default_settings();
     pack.set_int(settings_pack::alert_mask, alert_category::error |
                                                 alert_category::storage |
                                                 alert_category::status);

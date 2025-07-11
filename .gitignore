@@ -21,5 +21,6 @@ gui/gtk-assets/*
 !gui/gtk-assets/generate-full-file-manifest.sql
 !gui/gtk-assets/generate-full-file-manifest-count.sql
 !gui/gtk-assets/generate-update-manifest.sql
+!gui/gtk-assets/generate-update-manifest-sz.sql
 !gui/gtk-assets/mylauncher.gresource.xml
 !gui/gtk-assets/styles.css

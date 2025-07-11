@@ -128,6 +128,59 @@ int torrent_session_start_download(TorrentSession *session,
   return 0;
 }
 
+int torrent_session_get_total_size(TorrentSession *session,
+                                   const char *magnet_link,
+                                   uint64_t *size_out) {
+  if (!session || !magnet_link || !size_out)
+    return -1;
+  session->error_message.clear();
+  using namespace lt;
+  error_code ec;
+  auto params = parse_magnet_uri(magnet_link, ec);
+  if (ec) {
+    session->error_message =
+        ec.message().empty() ? "Failed to parse magnet link" : ec.message();
+    return -1;
+  }
+  params.save_path = ".";
+  torrent_handle th;
+  try {
+    th = session->session->add_torrent(std::move(params));
+  } catch (const std::exception &e) {
+    session->error_message = e.what();
+    return -1;
+  }
+  // wait for metadata or error
+  while (true) {
+    std::vector<alert *> alerts;
+    session->session->pop_alerts(&alerts);
+    bool got = false;
+    for (alert *a : alerts) {
+      if (const auto md = alert_cast<metadata_received_alert>(a)) {
+        if (md->handle == th) {
+          size_out[0] = md->handle.torrent_file()->total_size();
+          got = true;
+          break;
+        }
+      }
+      if (const auto te = alert_cast<torrent_error_alert>(a)) {
+        if (te->handle == th) {
+          session->error_message = te->error.message().empty()
+                                       ? "Unknown torrent error"
+                                       : te->error.message();
+          session->session->remove_torrent(th);
+          return -1;
+        }
+      }
+    }
+    if (got)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  session->session->remove_torrent(th);
+  return 0;
+}
+
 void torrent_session_close(TorrentSession *session) {
   if (!session)
     return;

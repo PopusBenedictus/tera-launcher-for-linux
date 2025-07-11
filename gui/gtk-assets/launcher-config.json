@@ -6,6 +6,10 @@
   "wine_prefix_name": ".terastarscape/wineprefix",
   "game_prefix_name": ".terastarscape/files",
   "config_prefix_name": ".terastarscape/config",
+  "torrent_download_enabled": true,
+  "torrent_prefix_name": ".terastarscape/torrent",
+  "torrent_magnet_link": "magnet:?xt=urn:btih:RHBA7LDWYCWIQDBBGN7PZBBEMZWVLA7X&dn=TERA%20Starscape.zip&xl=63357892348&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce",
+  "torrent_payload_file_name": "TERA Starscape.zip",
   "game_lang": "EUR",
   "public_launcher_assets": [
     "bg.jpg",

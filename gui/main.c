@@ -1577,7 +1577,6 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
   thread_data->window_minimized = false;
   thread_data->window_sensitive = false;
 
-
   // Share patch URL and game path in UpdateData for update functions to do
   // their thing.
   thread_data->update_data.public_patch_url = patch_url_global;

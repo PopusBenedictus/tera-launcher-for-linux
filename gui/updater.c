@@ -1565,6 +1565,39 @@ gboolean download_from_torrent(ProgressCallback callback,
   pd.torrent_download_done = false;
   pd.torrent_download_success = false;
 
+  uint64_t sz;
+  if (torrent_session_get_total_size(pd.session, torrent_magnet_link, &sz) !=
+      0) {
+    g_warning("Failed to get total size of base files: %s",
+              torrent_session_get_error(pd.session));
+    torrent_session_close(pd.session);
+    return false;
+  }
+
+  GError *error = nullptr;
+  const guint64 free_space_sz =
+      get_free_space_bytes(torrentprefix_global, &error);
+  if (error) {
+    g_warning("Unable to determine free disk space: %s", error->message);
+    g_clear_error(&error);
+    torrent_session_close(pd.session);
+    return false;
+  }
+
+  // We cannot measure the size of the archive after extraction, but we can
+  // assume it will be at least the size of two archives and then maybe 50%
+  // (deflate on mixed game files is unlikely to achieve this compression ratio
+  // on its own). Just because we can't attempt this via torrent download does
+  // not necessarily mean downloading from the update server directly would fail
+  // as we would not need to store over double the size of the game if only
+  // temporarily.
+  const uint64_t free_remain_sz = free_space_sz - (sz * 2 + (sz / 2));
+  if (free_remain_sz == 0 || free_remain_sz > free_space_sz) {
+    g_warning("Insufficient disk space for torrent download attempt");
+    torrent_session_close(pd.session);
+    return false;
+  }
+
   if (torrent_session_start_download(pd.session, torrent_magnet_link,
                                      torrentprefix_global) != 0) {
     g_warning("Failed to start torrent download: %s",

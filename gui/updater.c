@@ -614,6 +614,34 @@ gboolean extract_torrent_base_files(ProgressCallback overall_cb,
   gchar *archive_path =
       g_strdup_printf("%s/%s", torrentprefix_global, torrent_file_name);
 
+  const uint64_t archive_contents_sz =
+      sum_zip_uncompressed_size(archive_path, &error);
+  if (error) {
+    g_warning("Failed to fetch archive contents size: %s", error->message);
+    g_clear_error(&error);
+    g_free(archive_path);
+    g_free(d);
+    return false;
+  }
+
+  const uint64_t free_sz = get_free_space_bytes(gameprefix_global, &error);
+  if (error) {
+    g_warning("Failed to get free space size: %s", error->message);
+    g_clear_error(&error);
+    g_free(archive_path);
+    g_free(d);
+  }
+
+  const uint64_t remaining_sz = free_sz - archive_contents_sz;
+  if (remaining_sz == 0 || remaining_sz > free_sz) {
+    overall_cb(1.0f, "Insufficient space to extract base game files",
+               user_data);
+    g_clear_error(&error);
+    g_free(archive_path);
+    g_free(d);
+    return false;
+  }
+
   d->total_entries = count_zip_entries(archive_path, &error);
   if (d->total_entries == 0) {
     g_warning("Failed to count archive entries");

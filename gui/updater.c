@@ -1204,6 +1204,16 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
   }
 
   guint processed = 0;
+  guint64 repair_sz = 0;
+  GError *error = nullptr;
+  uint64_t free_sz = get_free_space_bytes(gameprefix_global, &error);
+  if (error) {
+    update_progress(callback, 1.0, "Unable to determine free space on disk",
+                    user_data);
+    g_clear_error(&error);
+    sqlite3_close(db);
+    return repair_list;
+  }
 
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     const int id = sqlite3_column_int(stmt, 0);
@@ -1267,6 +1277,7 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
     info->hash = g_strdup((const char *)hash_text);
     info->size = compressed_size;
     info->decompressed_size = decompressed_size;
+    repair_sz += decompressed_size;
     /* Construct the URL using the same naming convention: IDNUM-VERIDNUM.cab */
     info->url = g_strdup_printf("%s/%s/%d-%d.cab", data->public_patch_url,
                                 patch_path, id, new_ver);
@@ -1275,6 +1286,14 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
   }
   sqlite3_finalize(stmt);
   sqlite3_close(db);
+
+  const uint64_t remaining_sz = free_sz - (repair_sz + (repair_sz / 10));
+  if (remaining_sz == 0 || remaining_sz > free_sz) {
+    update_progress(callback, 1.0, "Insufficient disk space to perform repair",
+                    user_data);
+    g_list_free_full(repair_list, free_file_info);
+    return nullptr;
+  }
 
   update_progress(callback, 1.0, "Repair manifest retrieved.", user_data);
   return repair_list;

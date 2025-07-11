@@ -569,7 +569,7 @@ gboolean extract_torrent_base_files(ProgressCallback overall_cb,
   g_main_loop_run(d->loop);
 
   g_main_loop_unref(d->loop);
-  gboolean retval = d->success;
+  const gboolean retval = d->success;
   g_free(archive_path);
   g_free(d);
 
@@ -605,7 +605,7 @@ static gboolean download_version_ini(UpdateData *data) {
     if (!g_file_delete(dest_file, nullptr, &error)) {
       g_printerr(
           "Unable to delete the old version.ini while fetching the new one.");
-      g_error_free(error);
+      g_clear_error(&error);
       g_object_unref(src_file);
       g_object_unref(dest_file);
       g_free(dest_path);
@@ -618,7 +618,7 @@ static gboolean download_version_ini(UpdateData *data) {
   if (!g_file_move(src_file, dest_file, G_FILE_COPY_NONE, nullptr, nullptr,
                    nullptr, &error)) {
     g_printerr("Failed to move version.ini to game path: %s\n", error->message);
-    g_error_free(error);
+    g_clear_error(&error);
     g_object_unref(src_file);
     g_object_unref(dest_file);
     return FALSE;
@@ -785,7 +785,8 @@ static gboolean parse_version_ini() {
     strcpy(ini_path, "version.ini");
   }
 
-  if (!g_key_file_load_from_file(key_file, ini_path, G_KEY_FILE_NONE, nullptr)) {
+  if (!g_key_file_load_from_file(key_file, ini_path, G_KEY_FILE_NONE,
+                                 nullptr)) {
     g_object_unref(key_file);
     return FALSE;
   }
@@ -1263,7 +1264,7 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
     if (!g_file_move(src_file, dest_file, G_FILE_COPY_NONE, nullptr, nullptr,
                      nullptr, &error)) {
       g_printerr("Failed to move file to destination: %s\n", info->path);
-      g_error_free(error);
+      g_clear_error(&error);
       unlink(temp_extract);
       overall_success = FALSE;
     }

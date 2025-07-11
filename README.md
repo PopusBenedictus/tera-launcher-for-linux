@@ -275,6 +275,14 @@ chmod +x TERA_Launcher_for_Linux-x86_64.AppImage
 
 ---
 
+### How to disable download via Torrent
+
+In some circumstances, torrent downloads may be hindered or blocked on networks hostile to them. To address this, you may use the following ENV toggle to suppress base game file downloads via torrent if the client you are using was configured with it enabled:
+
+```bash
+export TL4L_DISABLE_TORRENT_DOWNLOAD=1
+```
+
 ### Password Storage
 
 By default, this launcher uses **libsecret** to store your account password securely.

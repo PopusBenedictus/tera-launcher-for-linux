@@ -16,25 +16,25 @@ extern "C" {
 #endif
 
 /**
- * @brief Return a newly‑allocated absolute path for a wineprefix.
+ * @brief Return a newly‑allocated absolute path for a prefix.
  *
- * If @p path is already absolute it is duplicated unchanged.  Otherwise it is
+ * If @p path is already absolute it is duplicated unchanged. Otherwise, it is
  * considered a simple name that should live directly in the user’s home
  * directory and the returned string is "$HOME/<path>".
  *
  * The caller owns the returned string and must g_free() it.
  */
-char *make_absolute_wineprefix(const char *path);
+char *make_absolute_prefix(const char *path);
 
 /**
- * @brief Validate a wineprefix name.
+ * @brief Validate a prefix name.
  *
- * Checks that the wineprefix name is non-empty and is a directory of some sort.
+ * Checks that the prefix name is non-empty and is a directory of some sort.
  *
- * @param name The wineprefix name to validate.
+ * @param name The prefix name to validate.
  * @return true if the name is valid, false otherwise.
  */
-bool validate_wineprefix_name(const char *name);
+bool validate_prefix_name(const char *name);
 
 /**
  * @brief Validate a Wine directory.

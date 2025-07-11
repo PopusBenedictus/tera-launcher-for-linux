@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=TERA Launcher for Linux
+Exec=./AppRun
+Icon=tera-launcher
+Type=Application
+Categories=Game;

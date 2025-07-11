@@ -27,5 +27,6 @@
         <file>generate-full-file-manifest.sql</file>
         <file>generate-full-file-manifest-count.sql</file>
         <file>generate-update-manifest.sql</file>
+        <file>generate-update-manifest-sz.sql</file>
     </gresource>
 </gresources>

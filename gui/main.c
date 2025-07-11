@@ -5,10 +5,11 @@
  * http://www.wtfpl.net/ for more details.
  */
 
-#include "shared_struct_defs.h"
+#include "auth.h"
 #include "updater.h"
 #include <curl/curl.h>
 #include <gdk/gdk.h>
+#include <gio/gio.h>
 #include <glib.h>
 #include <gtk/gtk.h>
 #include <jansson.h>
@@ -57,6 +58,11 @@ typedef struct {
   gboolean play_button_enabled;
   gboolean repair_button_enabled;
   gboolean repair_requested;
+  gboolean enable_pulse;
+  gboolean window_minimized;
+  gboolean window_sensitive;
+  gboolean wine_env_setup_done;
+  gboolean wine_env_setup_success;
 } UpdateThreadData;
 
 /**
@@ -66,6 +72,22 @@ struct CurlResponse {
   char *data;
   size_t size;
 };
+
+/**
+ * @brief The username of the last successful login.
+ */
+char last_successful_login_username_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief The password of the last successful login. Note this is only populated
+ * when plaintext password storage is enabled.
+ */
+char last_successful_login_password_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief AppDir path, only used in when AppImage mode is enabled.
+ */
+char appdir_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Game language string from the embedded json resource.
@@ -84,10 +106,43 @@ char wineprefix_global[FIXED_STRING_FIELD_SZ] = {0};
 char wineprefix_default_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
+ * @brief Game files folder name from the embedded json resource (default
+ * value).
+ */
+char gameprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Game files folder name from the embedded json resource (default
+ * value).
+ */
+char gameprefix_default_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Config files folder name from the embedded json resource (default
+ * value).
+ */
+char configprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief If specified by the user, a path to a custom build of wine. Unset by
  * default.
  */
 char wine_base_dir_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Torrent download directory folder name from embedded json resource.
+ */
+char torrentprefix_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Torrent download file name from embedded json resource.
+ */
+char torrent_file_name[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Torrent download magnet link from embedded json resource.
+ */
+char torrent_magnet_link[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a copy of the patch url root.
@@ -135,16 +190,49 @@ bool use_gamemoderun = false;
 bool use_gamescope = false;
 
 /**
+ * @brief If set to FALSE, we assume configuration and game files are in the
+ * same directory as the launcher itself. When set to TRUE, configuration is
+ * assumed to be stored where configprefix_global points, and that game files
+ * are not stored in the present working directory of the launcher.
+ */
+bool appimage_mode = false;
+
+/**
  * @brief If set to TRUE, attempt to launch TERA Toolbox before launching the
  * game itself. Turned off by default.
  */
 bool use_tera_toolbox = false;
 
 /**
+ * @brief If set to TRUE, attempt to store login info so it can be retrieved
+ * later.
+ */
+bool save_login_info = false;
+
+/**
+ * @brief If set to TRUE, read and write login info when user requests to store
+ * it to plain text.
+ */
+bool plaintext_login_info_storage = false;
+
+/**
+ * @brief If set to TRUE, when downloading game files _for the first time_,
+ * use the torrent download option, failing back to web server download
+ * if necessary. This is configured at compile time from embedded JSON resource.
+ */
+bool torrent_download_enabled = false;
+
+/**
  * @brief Used to store the final update thread message, if any, to update
  * progress bar label when the update resources are being thrown out.
  */
 static char update_finish_message[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Used to store torrent extraction status messages, if any, to
+ * update progress bar label when base game files are being extracted.
+ */
+static char update_torrent_message[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
  * @brief Holds a reference to the GUI stylesheet from the embedded resources.
@@ -157,6 +245,65 @@ static GBytes *style_data_gbytes = nullptr;
  * @brief Data extracted from the embedded stylesheet resource for the GUI.
  */
 const static gchar *style_data = nullptr;
+
+static gboolean delete_directory(GFile *root, GError **error) {
+  GQueue *dirs = g_queue_new();
+  gboolean success = TRUE;
+
+  /* Start with the root dir (take a ref so we can unref later) */
+  g_queue_push_tail(dirs, g_object_ref(root));
+
+  while (success && !g_queue_is_empty(dirs)) {
+    GFile *dir = g_queue_pop_head(dirs);
+    GFileEnumerator *e =
+        g_file_enumerate_children(dir, "standard::name,standard::type",
+                                  G_FILE_QUERY_INFO_NONE, nullptr, error);
+
+    if (!e) {
+      g_object_unref(dir);
+      success = false;
+      break;
+    }
+
+    GFileInfo *info;
+    while (success &&
+           ((info = g_file_enumerator_next_file(e, nullptr, nullptr)))) {
+      const char *name = g_file_info_get_name(info);
+      GFile *child = g_file_get_child(dir, name);
+
+      if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
+        /* schedule subdir for later removal */
+        g_queue_push_tail(dirs, child);
+      } else {
+        if (!g_file_delete(child, nullptr, error))
+          success = false;
+        g_object_unref(child);
+      }
+
+      g_object_unref(info);
+    }
+
+    g_file_enumerator_close(e, nullptr, nullptr);
+    g_object_unref(e);
+
+    if (success) {
+      if (!g_file_delete(dir, nullptr, error))
+        success = false;
+      g_object_unref(dir);
+    }
+  }
+
+  if (!success) {
+    /* clean up any remaining GFile refs in the queue */
+    while (!g_queue_is_empty(dirs)) {
+      GFile *left = g_queue_pop_head(dirs);
+      g_object_unref(left);
+    }
+  }
+
+  g_queue_free(dirs);
+  return success;
+}
 
 /**
  * @brief Performs cleanup of a dialog when it's closed.
@@ -226,7 +373,8 @@ static UpdateThreadData *ut_data_ref(UpdateThreadData *td) {
  */
 static void ut_data_unref(UpdateThreadData *td) {
   if (g_atomic_int_dec_and_test(&td->refcount)) {
-    g_free(td->update_data.game_path);
+    if (td->update_data.game_path)
+      g_free(td->update_data.game_path);
     free(td);
   }
 }
@@ -298,7 +446,6 @@ static bool do_login(const char *username, const char *password,
         "Failed to allocate %zu bytes for postfields into buffer of %zu bytes.",
         required, FIXED_STRING_FIELD_SZ);
   }
-  g_message("Fields being sent: %s", postfields);
 
   // Set cURL options
   curl_easy_setopt(curl, CURLOPT_URL, auth_url_global);
@@ -307,7 +454,6 @@ static bool do_login(const char *username, const char *password,
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-  curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
   // Perform the request
   CURLcode res = curl_easy_perform(curl);
@@ -344,9 +490,6 @@ static bool do_login(const char *username, const char *password,
               out->user_no[sizeof(out->user_no) - 1] = '\0';
               out->auth_key[sizeof(out->auth_key) - 1] = '\0';
               out->character_count[sizeof(out->character_count) - 1] = '\0';
-
-              g_message("Login success: user_no=%s, AuthKey=%s, CharCount=%s",
-                        out->user_no, out->auth_key, out->character_count);
               success = true;
             } else {
               g_warning("Invalid JSON structure for login data.");
@@ -500,6 +643,15 @@ static GtkWidget *create_login_overlay(LauncherData *ld) {
   gtk_widget_set_margin_bottom(ld->pass_entry, 302);
   gtk_widget_add_css_class(ld->pass_entry, "img_textbox");
   gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->pass_entry);
+
+  // Toggle to store login info or not.
+  ld->login_store_checkbox = gtk_check_button_new_with_label("Remember Login?");
+  gtk_widget_set_halign(ld->login_store_checkbox, GTK_ALIGN_START);
+  gtk_widget_set_valign(ld->login_store_checkbox, GTK_ALIGN_END);
+  gtk_widget_set_margin_start(ld->login_store_checkbox, 68);
+  gtk_widget_set_margin_bottom(ld->login_store_checkbox, 264);
+  gtk_widget_add_css_class(ld->login_store_checkbox, "remember_me_checkbox");
+  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), ld->login_store_checkbox);
 
   // Login Button
   GdkTexture *login_sub =
@@ -839,6 +991,8 @@ static json_t *load_launcher_config_json(GtkApplication *app,
     if (error) {
       g_error_free(error);
     }
+
+    g_free(launcher_config_gbytes);
     return nullptr;
   }
 
@@ -851,12 +1005,16 @@ static json_t *load_launcher_config_json(GtkApplication *app,
     if (error) {
       g_error_free(error);
     }
+
+    g_free(launcher_config_gbytes);
     return nullptr;
   }
 
   if (error) {
     g_error_free(error);
   }
+
+  g_free(launcher_config_gbytes);
   return config_json;
 }
 
@@ -912,6 +1070,98 @@ static void parse_and_copy_string(GtkApplication *app,
 }
 
 /**
+ * @brief Retrieve a bool value by key from the JSON object and copy it into
+ * the given buffer.
+ *
+ * If the key is missing or not a bool, a fatal error dialog is shown and the
+ * application quits.
+ *
+ * @param app                  The GtkApplication to use for showing fatal
+ * errors.
+ * @param launcher_config_json The JSON object to read from.
+ * @param key                  The JSON key to look up.
+ */
+static bool parse_and_copy_bool(GtkApplication *app,
+                                const json_t *launcher_config_json,
+                                const char *key) {
+  json_t *field = json_object_get(launcher_config_json, key);
+  if (!field) {
+    size_t required;
+    char error_message[FIXED_STRING_FIELD_SZ] = {0};
+    const bool success =
+        str_copy_formatted(error_message, &required, FIXED_STRING_FIELD_SZ,
+                           "Could not parse key: %s", key);
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for error message into buffer of "
+              "%zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
+    }
+    show_alert_dialog(gtk_application_get_active_window(app), "Data Error",
+                      error_message, ALERT_MSG_ERROR);
+  }
+
+  if (!json_is_boolean(field)) {
+    size_t required;
+    char error_message[FIXED_STRING_FIELD_SZ] = {0};
+    const bool success =
+        str_copy_formatted(error_message, &required, FIXED_STRING_FIELD_SZ,
+                           "Key '%s' is not a valid string.", key);
+    if (!success) {
+      g_error("Failed to allocate %zu bytes for error message into buffer of "
+              "%zu bytes.",
+              required, FIXED_STRING_FIELD_SZ);
+    }
+    show_alert_dialog(gtk_application_get_active_window(app),
+                      "Data Format Error", error_message, ALERT_MSG_ERROR);
+  }
+
+  return json_boolean_value(field);
+}
+
+/**
+ * @brief Parse a string from JSON, make it absolute, validate it, and
+ *        copy into two global buffers.
+ *
+ * @param app            GtkApplication instance (for dialogs).
+ * @param config         The launcher config JSON object.
+ * @param key            The JSON key to fetch (e.g. "wine_prefix_name").
+ * @param out_buf        Buffer to receive the absolute path.
+ * @param out_default    Buffer to receive the same absolute path as a default.
+ */
+static void load_and_validate_path_setting(GtkApplication *app,
+                                           const json_t *config,
+                                           const char *key, char *out_buf,
+                                           char *out_default) {
+  char tmp[FIXED_STRING_FIELD_SZ] = {0};
+  size_t needed;
+
+  parse_and_copy_string(app, config, key, tmp);
+
+  char *abs_val = make_absolute_prefix(tmp);
+  if (!g_path_is_absolute(abs_val) || abs_val[0] == '\0') {
+    show_alert_dialog(
+        gtk_application_get_active_window(app), "Configuration Error",
+        g_strdup_printf("Unable to resolve %s to an absolute path.", key),
+        ALERT_MSG_ERROR);
+    g_error("%s invalid", key);
+  }
+
+  if (!str_copy_formatted(out_buf, &needed, FIXED_STRING_FIELD_SZ, "%s",
+                          abs_val) ||
+      (out_default &&
+       !str_copy_formatted(out_default, &needed, FIXED_STRING_FIELD_SZ, "%s",
+                           abs_val))) {
+    show_alert_dialog(
+        gtk_application_get_active_window(app), "Configuration Error",
+        g_strdup_printf("%s is too long for internal buffer.", key),
+        ALERT_MSG_ERROR);
+    g_error("%s exceeds buffer", key);
+  }
+
+  g_free(abs_val);
+}
+
+/**
  * @brief Load and validate the launcher's configuration from embedded JSON.
  *
  * Reads JSON from /com/tera/launcher/launcher-config.json, populates the global
@@ -927,41 +1177,53 @@ static gboolean launcher_init_config(GtkApplication *app) {
   if (!launcher_config_json)
     return false;
 
+  appimage_mode = g_getenv("APPIMAGE_MODE_ENABLED") != nullptr;
+  plaintext_login_info_storage =
+      g_getenv("TL4L_ENABLE_PLAINTEXT_PASSWORD_STORAGE") != nullptr;
+  const gchar *appdir = g_getenv("APPDIR");
+  size_t len;
+  if (appimage_mode) {
+    if (!str_copy_formatted(appdir_global, &len, FIXED_STRING_FIELD_SZ, "%s",
+                            appdir)) {
+      g_warning("AppImage mode, but unable to copy AppDir path of %zu bytes -- "
+                "path too long!",
+                len);
+      return false;
+    }
+  }
+
   parse_and_copy_string(app, launcher_config_json, "public_patch_url",
                         patch_url_global);
   parse_and_copy_string(app, launcher_config_json, "auth_url", auth_url_global);
   parse_and_copy_string(app, launcher_config_json, "server_list_url",
                         server_list_url_global);
+  parse_and_copy_string(app, launcher_config_json, "torrent_magnet_link",
+                        torrent_magnet_link);
+  parse_and_copy_string(app, launcher_config_json, "torrent_payload_file_name",
+                        torrent_file_name);
 
-  char tmp_prefix[FIXED_STRING_FIELD_SZ] = {0};
-  parse_and_copy_string(app, launcher_config_json, "wine_prefix_name",
-                        tmp_prefix);
-
-  char *abs_prefix = make_absolute_wineprefix(tmp_prefix);
-  if (!g_path_is_absolute(abs_prefix) || abs_prefix[0] == '\0') {
-    show_alert_dialog(gtk_application_get_active_window(app),
-                      "Configuration Error",
-                      "Unable to resolve wine_prefix_name to an absolute path.",
-                      ALERT_MSG_ERROR);
-    g_error("wine_prefix_name invalid");
-  }
-
-  size_t needed;
-  if (!str_copy_formatted(wineprefix_global, &needed, FIXED_STRING_FIELD_SZ,
-                          "%s", abs_prefix) ||
-      !str_copy_formatted(wineprefix_default_global, &needed,
-                          FIXED_STRING_FIELD_SZ, "%s", abs_prefix)) {
-    show_alert_dialog(
-        gtk_application_get_active_window(app), "Configuration Error",
-        "Wine prefix path is too long for internal buffer.", ALERT_MSG_ERROR);
-    g_error("wine_prefix_name exceeds buffer");
-  }
-  g_free(abs_prefix);
+  load_and_validate_path_setting(app, launcher_config_json, "wine_prefix_name",
+                                 wineprefix_global, wineprefix_default_global);
+  load_and_validate_path_setting(app, launcher_config_json, "game_prefix_name",
+                                 gameprefix_global, gameprefix_default_global);
+  load_and_validate_path_setting(app, launcher_config_json,
+                                 "config_prefix_name", configprefix_global,
+                                 nullptr);
+  load_and_validate_path_setting(app, launcher_config_json,
+                                 "torrent_prefix_name", torrentprefix_global,
+                                 nullptr);
 
   parse_and_copy_string(app, launcher_config_json, "game_lang",
                         game_lang_global);
   parse_and_copy_string(app, launcher_config_json, "service_name",
                         service_name_global);
+
+  torrent_download_enabled = parse_and_copy_bool(app, launcher_config_json,
+                                                 "torrent_download_enabled");
+
+  torrent_download_enabled = !g_getenv("TL4L_DISABLE_TORRENT_DOWNLOAD")
+                                 ? torrent_download_enabled
+                                 : false;
 
   json_decref(launcher_config_json);
   return true;
@@ -987,7 +1249,30 @@ static gboolean progress_bar_callback(gpointer data) {
 static gboolean download_progress_bar_callback(gpointer data) {
   const UpdateThreadData *td = data;
   GtkProgressBar *pb = td->update_data.download_progress_bar;
-  gtk_progress_bar_set_fraction(pb, td->current_download_progress);
+  if (td->enable_pulse) {
+    gtk_progress_bar_set_pulse_step(pb, 0.2);
+    gtk_progress_bar_pulse(pb);
+  } else {
+    gtk_progress_bar_set_fraction(pb, td->current_download_progress);
+  }
+
+  GdkSurface *surface =
+      gtk_native_get_surface(gtk_widget_get_native(GTK_WIDGET(td->ld->window)));
+  const GdkToplevelState toplevel_state =
+      gdk_toplevel_get_state(GDK_TOPLEVEL(surface));
+  if (td->window_minimized &&
+      !(toplevel_state & GDK_TOPLEVEL_STATE_MINIMIZED)) {
+    gtk_window_minimize(GTK_WINDOW(td->ld->window));
+  } else if (!td->window_minimized) {
+    if (td->window_sensitive) {
+      gtk_widget_set_sensitive(td->ld->window, TRUE);
+      gtk_widget_set_sensitive(td->ld->play_btn, TRUE);
+      gtk_widget_set_sensitive(td->ld->option_menu_btn, TRUE);
+    }
+    if (toplevel_state & GDK_TOPLEVEL_STATE_MINIMIZED)
+      gtk_window_present(GTK_WINDOW(td->ld->window));
+  }
+
   gtk_progress_bar_set_text(pb, td->current_download_message);
   return FALSE;
 }
@@ -1006,6 +1291,26 @@ static gboolean progress_bar_final_callback(gpointer data) {
     gtk_progress_bar_set_fraction(td->update_data.download_progress_bar, 0.0);
     gtk_progress_bar_set_text(td->update_data.download_progress_bar, "");
     memset(update_finish_message, 0, sizeof(update_finish_message));
+  }
+
+  return FALSE;
+}
+
+/**
+ * @brief Used when we want to reset progress bar state after torrent data
+ * extraction completes.
+ * @param data A pointer to an instance of update thread data.
+ * @return Whether to kill the signal that fired this callback off or not.
+ */
+static gboolean progress_bar_final_torrent_callback(gpointer data) {
+  const UpdateThreadData *td = data;
+  if (strlen(update_torrent_message) != 0) {
+    gtk_progress_bar_set_fraction(td->update_data.progress_bar, 1.0);
+    gtk_progress_bar_set_text(td->update_data.progress_bar,
+                              update_torrent_message);
+    gtk_progress_bar_set_fraction(td->update_data.download_progress_bar, 0.0);
+    gtk_progress_bar_set_text(td->update_data.download_progress_bar, "");
+    memset(update_torrent_message, 0, sizeof(update_torrent_message));
   }
 
   return FALSE;
@@ -1067,16 +1372,127 @@ static gpointer update_thread_func(gpointer data) {
   }
 
   UpdateData *update_data = &ut_data->update_data;
+  ut_data->window_minimized = false;
+  ut_data = ut_data_ref(ut_data);
 
-  // Step 2: Get files to update (may become repair task if conditions align to
-  // require it or is requested)
+  char binaries_test_path[FIXED_STRING_FIELD_SZ];
+  size_t required;
+  if (!str_copy_formatted(binaries_test_path, &required, FIXED_STRING_FIELD_SZ,
+                          "%s/Binaries/TERA.exe", gameprefix_global))
+    g_error("Unable to allocate %zu bytes for path into buffer of %zu bytes.",
+            required, FIXED_STRING_FIELD_SZ);
+  const bool binary_present = g_file_test(
+      binaries_test_path, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_REGULAR);
+
+  // Check if base game files exist. If they don't, we will try to download them
+  // using the torrent source first.
+  bool torrent_download_success = false;
+  bool do_torrent_download = false;
+  if (torrent_download_enabled) {
+    bool torrentprefix_exists = false;
+    if (!g_file_test(torrentprefix_global,
+                     G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)) {
+      if (g_mkdir_with_parents(torrentprefix_global, 0755) == 0) {
+        torrentprefix_exists = true;
+      } else {
+        g_warning("Unable to create torrent data directory.");
+      }
+    } else {
+      torrentprefix_exists = true;
+    }
+
+    if (!appimage_mode) {
+      gchar *gameprefix = g_get_current_dir();
+      if (!str_copy_formatted(gameprefix_global, &required,
+                              FIXED_STRING_FIELD_SZ, "%s", gameprefix))
+        g_error("Unable to allocate %zu bytes into global gameprefix buffer of "
+                "%zu bytes",
+                required, FIXED_STRING_FIELD_SZ);
+      g_free(gameprefix);
+    }
+
+    if (g_file_test(gameprefix_global,
+                    G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)) {
+      GError *error;
+      GDir *dir = g_dir_open(gameprefix_global, 0, &error);
+      if (!dir) {
+        if (g_mkdir_with_parents(gameprefix_global, 0755) == 0) {
+          do_torrent_download = true;
+        } else {
+          g_warning("Unable to create new game files directory.");
+        }
+      } else {
+        const gchar *entry = g_dir_read_name(dir);
+        g_dir_close(dir);
+        if ((appimage_mode && !entry) || (!appimage_mode && !binary_present)) {
+          do_torrent_download = true;
+        }
+      }
+    } else {
+      if (binary_present) {
+        do_torrent_download = false;
+      } else if (g_mkdir_with_parents(gameprefix_global, 0755) == 0) {
+        do_torrent_download = true;
+      } else {
+        g_warning("Unable to create new game files directory.");
+      }
+    }
+
+    if (do_torrent_download && torrentprefix_exists) {
+      torrent_download_success = download_from_torrent(
+          update_progress_callback, update_download_progress_callback, ut_data);
+    } else {
+      if (!binary_present)
+        g_warning("Skipping torrent downloads attempt either because its not "
+                  "enabled or "
+                  "we were unable to prepare the torrent prefix directory.");
+    }
+  }
+
+  // Extract the game files payload if download was successful
+  if (torrent_download_enabled && torrent_download_success) {
+    g_warning("Attempting to extract base game files.");
+    if (extract_torrent_base_files(update_progress_callback,
+                                   update_download_progress_callback,
+                                   ut_data)) {
+      strcpy(update_torrent_message, "Base game files extracted. Validating.");
+      g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_final_torrent_callback,
+                      ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
+      GFile *dir = g_file_new_for_path(torrentprefix_global);
+      GError *error = nullptr;
+
+      if (!delete_directory(dir, &error)) {
+        g_warning("Couldn't clean up old torrent data: %s", error->message);
+        g_clear_error(&error);
+      }
+      g_object_unref(dir);
+
+      g_usleep(2000000);
+    } else {
+      g_usleep(1000000);
+      strcpy(update_torrent_message,
+             "Base game files extraction error. Repairing.");
+      g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_final_torrent_callback,
+                      ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
+      g_usleep(2000000);
+    }
+  } else {
+    if (!binary_present)
+      g_warning("Failed to download and extract torrent base game files.");
+  }
+
   GList *files_to_update;
-  if (ut_data->repair_requested)
+  if (torrent_download_enabled && do_torrent_download) {
     files_to_update =
         get_files_to_repair(update_data, update_progress_callback, ut_data);
-  else
-    files_to_update =
-        get_files_to_update(update_data, update_progress_callback, ut_data);
+  } else {
+    if (ut_data->repair_requested)
+      files_to_update =
+          get_files_to_repair(update_data, update_progress_callback, ut_data);
+    else
+      files_to_update =
+          get_files_to_update(update_data, update_progress_callback, ut_data);
+  }
 
   if (!files_to_update) {
     ut_data->play_button_enabled = TRUE;
@@ -1086,10 +1502,11 @@ static gpointer update_thread_func(gpointer data) {
                     ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, button_status_callback,
                     ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
+    ut_data_unref(ut_data);
     return nullptr;
   }
 
-  // Step 3: Download all files
+  // Download all requested files.
   if (!download_all_files(update_data, files_to_update,
                           update_progress_callback,
                           update_download_progress_callback, ut_data)) {
@@ -1098,6 +1515,7 @@ static gpointer update_thread_func(gpointer data) {
     g_idle_add_full(G_PRIORITY_HIGH_IDLE, button_status_callback,
                     ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
     g_list_free_full(files_to_update, free_file_info);
+    ut_data_unref(ut_data);
     return nullptr;
   }
 
@@ -1109,6 +1527,7 @@ static gpointer update_thread_func(gpointer data) {
   ut_data->repair_button_enabled = TRUE;
   g_idle_add_full(G_PRIORITY_HIGH_IDLE, button_status_callback,
                   ut_data_ref(ut_data), (GDestroyNotify)ut_data_unref);
+  ut_data_unref(ut_data);
   return nullptr;
 }
 
@@ -1151,10 +1570,22 @@ static void start_update_process(LauncherData *ld, bool do_repair) {
     return;
   }
 
+  memset(thread_data, 0, sizeof(UpdateThreadData));
+  thread_data->play_button_enabled = false;
+  thread_data->repair_button_enabled = false;
+  thread_data->enable_pulse = false;
+  thread_data->window_minimized = false;
+  thread_data->window_sensitive = false;
+
   // Share patch URL and game path in UpdateData for update functions to do
   // their thing.
   thread_data->update_data.public_patch_url = patch_url_global;
-  thread_data->update_data.game_path = g_get_current_dir();
+
+  if (appimage_mode) {
+    thread_data->update_data.game_path = g_strdup(gameprefix_global);
+  } else {
+    thread_data->update_data.game_path = g_get_current_dir();
+  }
 
   // Populate UpdateThreadData
   thread_data->ld = ld;
@@ -1200,6 +1631,16 @@ static gboolean restore_launcher_callback(gpointer user_data) {
   gtk_widget_set_sensitive(cb_data->ld->window, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->play_btn, TRUE);
   gtk_widget_set_sensitive(cb_data->ld->option_menu_btn, TRUE);
+  gtk_progress_bar_set_fraction(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_progress_bar), 1.0);
+  gtk_progress_bar_set_text(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_progress_bar),
+      "Failed to Launch Game");
+  gtk_progress_bar_set_fraction(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_download_bar), 0.0);
+  gtk_progress_bar_set_text(
+      GTK_PROGRESS_BAR(cb_data->ld->update_repair_download_bar),
+      "Memory Allocation Failure");
   gtk_window_present(GTK_WINDOW(cb_data->ld->window));
 
   free(cb_data);
@@ -1265,13 +1706,18 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
                                       const bool enable_wsi_fix,
                                       gchar **wine_path) {
   gchar **envp = g_get_environ();
-
-  /* ── 1. Locate the Wine binary ──────────────────────────────────────── */
   gchar *resolved_wine = nullptr;
+  const gchar *target_wine_dir;
+  if (appdir_global && !custom_wine_dir) {
+    config_read_from_ini();
+    target_wine_dir = wine_base_dir_global;
+  } else {
+    target_wine_dir = custom_wine_dir;
+  }
 
-  if (custom_wine_dir && *custom_wine_dir) {
+  if (target_wine_dir && *target_wine_dir) {
     /* <custom>/bin/wine must exist and be executable */
-    resolved_wine = g_build_filename(custom_wine_dir, "bin", "wine", nullptr);
+    resolved_wine = g_build_filename(target_wine_dir, "bin", "wine", nullptr);
     if (!g_file_test(resolved_wine, G_FILE_TEST_IS_EXECUTABLE)) {
       g_warning("Custom Wine build not found or not executable: %s",
                 resolved_wine);
@@ -1282,9 +1728,11 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
 
     /* Pre‑pend <custom>/bin to PATH */
     const gchar *old_path = g_environ_getenv(envp, "PATH");
-    gchar *wine_bin_path = g_build_filename(custom_wine_dir, "bin", nullptr);
+    gchar *wine_bin_path = g_build_filename(target_wine_dir, "bin", nullptr);
 
     GString *new_path = g_string_new(wine_bin_path);
+    g_string_append_c(new_path, G_SEARCHPATH_SEPARATOR);
+    g_string_append_printf(new_path, "%s/usr/bin", appdir_global);
     g_string_append_c(new_path, G_SEARCHPATH_SEPARATOR);
     g_string_append(new_path,
                     old_path ? old_path : "/usr/local/bin:/usr/bin:/bin");
@@ -1293,8 +1741,8 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
     /* Also fix‑up LD_LIBRARY_PATH so Wine can find its own libs */
     const gchar *old_ld = g_environ_getenv(envp, "LD_LIBRARY_PATH");
     GString *new_ld = g_string_new("");
-    g_string_append_printf(new_ld, "%s/lib:%s/lib64", custom_wine_dir,
-                           custom_wine_dir);
+    g_string_append_printf(new_ld, "%s/lib:%s/lib64", target_wine_dir,
+                           target_wine_dir);
     if (old_ld && *old_ld) {
       g_string_append_c(new_ld, ':');
       g_string_append(new_ld, old_ld);
@@ -1302,10 +1750,12 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
     envp = g_environ_setenv(envp, "LD_LIBRARY_PATH", new_ld->str, true);
 
     /* Tell Wine where its helper binaries live */
-    gchar *loader = g_build_filename(custom_wine_dir, "bin", "wine", nullptr);
+    gchar *loader = g_build_filename(target_wine_dir, "bin", "wine", nullptr);
     gchar *server =
-        g_build_filename(custom_wine_dir, "bin", "wineserver", nullptr);
+        g_build_filename(target_wine_dir, "bin", "wineserver", nullptr);
     envp = g_environ_setenv(envp, "WINELOADER", loader, true);
+    /* WINE env is used by winetricks, WINELOADER is for the stub launcher */
+    envp = g_environ_setenv(envp, "WINE", loader, true);
     envp = g_environ_setenv(envp, "WINESERVER", server, true);
 
     g_string_free(new_path, TRUE);
@@ -1328,6 +1778,7 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
     g_free(resolved_wine);
 
   envp = g_environ_setenv(envp, "WINEDEBUG", "-all", true);
+  envp = g_environ_setenv(envp, "WINEARCH", "win64", true);
   envp = g_environ_setenv(envp, "DXVK_LOG_LEVEL", "none", true);
 
   if (enable_wsi_fix) {
@@ -1416,6 +1867,84 @@ static gchar **build_launch_argv(const gchar *exe_path,
 }
 
 /**
+ * @brief Callback used to handle exit status of wineprefix health check.
+ * @param pid Thread PID for the wineprefix health check thread.
+ * @param wait_status A GTK-specific wait status to be checked for abnormal
+ * termination.
+ * @param user_data Our update thread data struct.
+ */
+static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
+                                         gpointer user_data) {
+  UpdateThreadData *td = user_data;
+  GError *err = nullptr;
+  td->wine_env_setup_success = g_spawn_check_wait_status(wait_status, &err);
+  td->wine_env_setup_done = true;
+  if (err) {
+    g_message("Winetricks exit code %i: %s", err->code, err->message);
+    g_error_free(err);
+  }
+  g_spawn_close_pid(pid);
+}
+
+/**
+ * @brief Prepare wineprefix if it does not exist and install dependencies.
+ *
+ * @param envp Environment variables to use when launching winetricks.
+ * @param thread_data Update thread struct for GUI updates while performing the
+ * task.
+ */
+static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
+  gchar *winetricks = g_find_program_in_path("winetricks");
+  if (!winetricks) {
+    g_warning("Failed to find winetricks");
+    return false;
+  }
+
+  GPtrArray *argv = g_ptr_array_new();
+  g_ptr_array_add(argv, g_strdup(winetricks));
+  g_ptr_array_add(argv, g_strdup("-q"));
+  g_ptr_array_add(argv, g_strdup("vkd3d"));
+  g_ptr_array_add(argv, g_strdup("corefonts"));
+  g_ptr_array_add(argv, g_strdup("vcrun2022"));
+  g_ptr_array_add(argv, g_strdup("ucrtbase2019"));
+  g_ptr_array_add(argv, g_strdup("dxvk"));
+  g_ptr_array_add(argv, nullptr);
+  const auto argv_complete = (gchar **)g_ptr_array_free(argv, false);
+
+  GError *err = nullptr;
+  GPid child_pid = 0;
+  const gboolean ok =
+      g_spawn_async(nullptr, argv_complete, envp, G_SPAWN_DO_NOT_REAP_CHILD,
+                    nullptr, nullptr, &child_pid, &err);
+
+  g_child_watch_add(child_pid, (GChildWatchFunc)game_wine_env_thread_watcher,
+                    thread_data);
+
+  while (!thread_data->wine_env_setup_done) {
+    thread_data->current_progress = 0.5;
+    thread_data->current_message = "Preparing Environment";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Might take awhile the first time";
+    thread_data->enable_pulse = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_usleep(500000);
+  }
+
+  if (!ok) {
+    g_warning("Winetricks failed: %s (%i)", err->message, err->code);
+    g_error_free(err);
+    g_strfreev(argv_complete);
+    return false;
+  }
+
+  g_strfreev(argv_complete);
+  return true;
+}
+
+/**
  * @brief Launch a Windows program under Wine in the background.
  *
  * @param exe_path           Path to the *.exe* you want to run.
@@ -1474,10 +2003,41 @@ static gpointer game_launcher_thread(gpointer data) {
   if (!launch_data)
     return nullptr;
 
+  // Ideally we marshall UI changes, rather than make them directly from this
+  // thread. But if we cannot do that, we'll just have to go for it and pray.
+  UpdateThreadData *thread_data = malloc(sizeof(UpdateThreadData));
+  if (!thread_data) {
+    game_exit_callback(1, launch_data->ld);
+    return nullptr;
+  }
+
+  memset(thread_data, 0, sizeof(UpdateThreadData));
+  thread_data = ut_data_ref(thread_data);
+  thread_data->ld = launch_data->ld;
+  thread_data->enable_pulse = false;
+  thread_data->window_minimized = false;
+  thread_data->wine_env_setup_done = false;
+  thread_data->wine_env_setup_success = false;
+  thread_data->update_data.download_progress_bar =
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar);
+  thread_data->update_data.progress_bar =
+      GTK_PROGRESS_BAR(launch_data->ld->update_repair_progress_bar);
+
   char cwd[FIXED_STRING_FIELD_SZ];
   if (!getcwd(cwd, sizeof cwd)) {
     g_warning("Failed to getcwd()");
-    gtk_widget_set_sensitive(GTK_WIDGET(launch_data->ld->play_btn), TRUE);
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message =
+        "Failed to verify current working directory";
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
   }
@@ -1486,20 +2046,56 @@ static gpointer game_launcher_thread(gpointer data) {
       *p = '\\';
 
   char game_path[FIXED_STRING_FIELD_SZ];
+  char *game_base;
   size_t need;
+  if (appimage_mode) {
+    game_base = gameprefix_global;
+  } else {
+    game_base = cwd;
+  }
   if (!str_copy_formatted(game_path, &need, sizeof game_path,
-                          "Z:%s\\Binaries\\TERA.exe", cwd)) {
-    g_error("Path buffer too small; need %zu bytes", need);
+                          "Z:%s\\Binaries\\TERA.exe", game_base)) {
+    g_warning("Path buffer too small; need %zu bytes", need);
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message =
+        "Memory allocation error preparing game path for Wine";
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    ut_data_unref(thread_data);
+    free(launch_data);
+    return nullptr;
   }
 
   gchar *cwd_g = g_get_current_dir();
-  gchar *stub_path = g_build_filename(cwd_g, "stub_launcher.exe", NULL);
+  gchar *stub_path = nullptr;
+  if (appimage_mode)
+    stub_path = g_build_filename(appdir_global, "usr/bin", "stub_launcher.exe",
+                                 nullptr);
+  else
+    stub_path = g_build_filename(cwd_g, "stub_launcher.exe", nullptr);
 
   if (!g_file_test(stub_path, G_FILE_TEST_EXISTS)) {
     g_message("stub_launcher.exe not found: %s", stub_path);
-    game_exit_callback(1, launch_data->ld); /* custom callback */
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Stub launcher not found";
+    thread_data->enable_pulse = false;
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_free(stub_path);
     g_free(cwd_g);
+    ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
   }
@@ -1508,8 +2104,21 @@ static gpointer game_launcher_thread(gpointer data) {
   gchar **envp = build_wine_environment(wine_base_dir_global, wineprefix_global,
                                         use_gamescope, &wine_bin);
   if (!envp) {
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message =
+        "Failed to prepare Wine environment variables";
+    thread_data->enable_pulse = false;
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
     g_free(stub_path);
     g_free(cwd_g);
+    ut_data_unref(thread_data);
     free(launch_data);
     return nullptr;
   }
@@ -1530,22 +2139,77 @@ static gpointer game_launcher_thread(gpointer data) {
 
   GError *err = nullptr;
   gint status = 0;
+
+  if (!prepare_wineprefix(envp, thread_data)) {
+    thread_data->current_progress = 0.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 1.0;
+    thread_data->current_download_message =
+        "Failed to Prepare Game Dependencies";
+    thread_data->enable_pulse = false;
+    thread_data->window_minimized = false;
+    thread_data->window_sensitive = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+
+    g_strfreev(argv_final);
+    g_strfreev(envp);
+    g_free(wine_bin);
+    g_free(stub_path);
+    g_free(cwd_g);
+    ut_data_unref(thread_data);
+    free(launch_data);
+    return nullptr;
+  }
+
+  thread_data->current_progress = 1.0;
+  thread_data->current_message = "Launching the Game";
+  thread_data->current_download_progress = 1.0;
+  thread_data->current_download_message = "Have Fun :)";
+  thread_data->enable_pulse = false;
+  thread_data->window_minimized = true;
+  g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                  ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+  g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                  ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+
   const gboolean ok =
       g_spawn_sync(cwd_g, argv_final, envp, G_SPAWN_DEFAULT, nullptr, nullptr,
                    nullptr, nullptr, &status, &err);
 
+  thread_data->window_minimized = false;
+  thread_data->window_sensitive = true;
   if (!ok) {
-    g_warning("g_spawn_sync() failed: %s", err->message);
-    g_error_free(err);
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Failed to Launch Game";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message =
+        "Runtime Error Starting the Game Client";
+    thread_data->enable_pulse = false;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+  } else {
+    thread_data->current_progress = 1.0;
+    thread_data->current_message = "Game Exited";
+    thread_data->current_download_progress = 1.0;
+    thread_data->current_download_message = "Game Ready to Launch";
+    thread_data->enable_pulse = false;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
   }
-
-  game_exit_callback(status, launch_data->ld);
 
   g_strfreev(argv_final);
   g_strfreev(envp);
   g_free(wine_bin);
   g_free(stub_path);
   g_free(cwd_g);
+  ut_data_unref(thread_data);
   free(launch_data);
 
   return nullptr;
@@ -1565,9 +2229,13 @@ static void on_play_clicked(GtkButton *btn, gpointer user_data) {
   // Disable the play button to prevent multiple clicks
   gtk_widget_set_sensitive(ld->play_btn, FALSE);
 
-  // Minimize the launcher window
-  gtk_window_minimize(GTK_WINDOW(ld->window));
+  // Block inputs
   gtk_widget_set_sensitive(GTK_WIDGET(ld->window), FALSE);
+
+  // Pulse download progress bar to show launcher is doing work
+  gtk_progress_bar_set_pulse_step(
+      GTK_PROGRESS_BAR(ld->update_repair_download_bar), 0.1);
+  gtk_progress_bar_pulse(GTK_PROGRESS_BAR(ld->update_repair_download_bar));
 
   // Allocate and populate GameLaunchData
   GameLaunchData *launch_data = malloc(sizeof(GameLaunchData));
@@ -1617,6 +2285,41 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
 
   LoginData temp = {0};
   if (do_login(username, password, &temp)) {
+    size_t required;
+    bool success;
+    if (gtk_check_button_get_active(
+            GTK_CHECK_BUTTON(ld->login_store_checkbox))) {
+      save_login_info = true;
+      success =
+          str_copy_formatted(last_successful_login_username_global, &required,
+                             FIXED_STRING_FIELD_SZ, "%s", username);
+      if (success) {
+        if (!plaintext_login_info_storage) {
+          if (!tl4l_store_account_password(username, password))
+            g_warning("Could not store password for account with username '%s'",
+                      username);
+        } else {
+          success = str_copy_formatted(last_successful_login_password_global,
+                                       &required, FIXED_STRING_FIELD_SZ, "%s",
+                                       password);
+          if (!success)
+            g_warning("Could not store password for account with username '%s'",
+                      username);
+        }
+        config_write_to_ini();
+      } else {
+        g_error("Failed to allocate %zu bytes for username in buffer of "
+                "size %zu bytes.",
+                required, FIXED_STRING_FIELD_SZ);
+      }
+    } else {
+      save_login_info = false;
+      memset(last_successful_login_username_global, 0, FIXED_STRING_FIELD_SZ);
+      if (!plaintext_login_info_storage)
+        tl4l_clear_account_password(username);
+      config_write_to_ini();
+    }
+
     // Store login data
     strncpy(ld->login_data.user_no, temp.user_no,
             sizeof(ld->login_data.user_no) - 1);
@@ -1626,10 +2329,9 @@ static void on_login_clicked(GtkButton *btn, gpointer user_data) {
             sizeof(ld->login_data.character_count) - 1);
 
     // Prepare user welcome label on patch screen.
-    size_t required;
-    const bool success = str_copy_formatted(ld->login_data.welcome_label_msg,
-                                            &required, FIXED_STRING_FIELD_SZ,
-                                            "Welcome, <b>%s!</b>", username);
+    success = str_copy_formatted(ld->login_data.welcome_label_msg, &required,
+                                 FIXED_STRING_FIELD_SZ, "Welcome, <b>%s!</b>",
+                                 username);
     if (!success) {
       g_error("Failed to allocate %zu bytes for welcome string in buffer of "
               "size %zu bytes.",
@@ -1815,7 +2517,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     use_gamescope = false;
   }
 
-  if (!validate_wineprefix_name(wineprefix_global)) {
+  if (!validate_prefix_name(wineprefix_global)) {
     if (strcmp(wineprefix_global, wineprefix_default_global) == 0) {
       g_error("Invalid wineprefix, and the global wineprefix value matches "
               "invalid. Cannot continue.");
@@ -1836,6 +2538,12 @@ static void activate(GtkApplication *app, gpointer user_data) {
     }
   }
 
+  // Reset stored username if user chose to no longer store login information.
+  if (!save_login_info && strlen(last_successful_login_username_global) > 0) {
+    tl4l_clear_account_password(last_successful_login_username_global);
+    memset(last_successful_login_username_global, 0, FIXED_STRING_FIELD_SZ);
+  }
+
   // Write loaded configuration (and any changes applied above).
   config_write_to_ini();
 
@@ -1850,8 +2558,9 @@ static void activate(GtkApplication *app, gpointer user_data) {
     g_warning("Failed to build Toolbox path (need %zu bytes)", needed_size);
     return;
   }
-
-  launch_windows_program_async(toolbox_exe, nullptr, tera_toolbox_path_global);
+  if (use_tera_toolbox && strlen(tera_toolbox_path_global) > 0)
+    launch_windows_program_async(toolbox_exe, nullptr,
+                                 tera_toolbox_path_global);
 
   GError *error = nullptr;
   style_data_gbytes =
@@ -1908,6 +2617,24 @@ static void activate(GtkApplication *app, gpointer user_data) {
                             GTK_EVENT_CONTROLLER(ld->login_controller));
   gtk_widget_add_controller(ld->patch_overlay,
                             GTK_EVENT_CONTROLLER(ld->patch_controller));
+  gtk_check_button_set_active(GTK_CHECK_BUTTON(ld->login_store_checkbox),
+                              save_login_info);
+
+  if (strlen(last_successful_login_username_global) > 0 && save_login_info) {
+    gchar *password;
+    if (plaintext_login_info_storage)
+      password = g_strdup(last_successful_login_password_global);
+    else
+      password =
+          tl4l_lookup_account_password(last_successful_login_username_global);
+    gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(ld->user_entry)),
+                              last_successful_login_username_global, -1);
+    if (password) {
+      gtk_entry_buffer_set_text(gtk_entry_get_buffer(GTK_ENTRY(ld->pass_entry)),
+                                password, -1);
+      g_free(password);
+    }
+  }
 
   // Show the main window
   gtk_widget_set_visible(ld->window, TRUE);

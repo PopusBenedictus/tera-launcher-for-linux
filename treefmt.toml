@@ -1,0 +1,18 @@
+# https://treefmt.com/latest/getting-started/configure
+[formatter.clang-format]
+command = "clang-format"
+includes = [
+    "*.c",
+    "*.cc",
+    "*.cpp",
+    "*.h",
+    "*.hh",
+    "*.hpp"
+]
+options = ["-i"]
+
+[formatter.nixfmt]
+command = "nixfmt"
+includes = [
+    "*.nix"
+]

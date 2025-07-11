@@ -67,6 +67,22 @@ int torrent_session_start_download(TorrentSession *session,
                                    const char *save_path);
 
 /**
+ * @brief Retrieve the total size of the torrent contents (in bytes) by fetching
+ * metadata.
+ *
+ * Parses the magnet URI, fetches metadata (blocking), and returns the total
+ * content size.
+ *
+ * @param session     Pointer to a valid TorrentSession.
+ * @param magnet_link Null-terminated string containing the magnet URI.
+ * @param size_out    Pointer to uint64_t to receive the total size in bytes.
+ * @return 0 on success, or -1 on error. Check torrent_session_get_error() for
+ * details on failure.
+ */
+int torrent_session_get_total_size(TorrentSession *session,
+                                   const char *magnet_link, uint64_t *size_out);
+
+/**
  * @brief Close and clean up a torrent session.
  *
  * Signals the download thread to stop, waits for it to finish,

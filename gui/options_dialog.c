@@ -69,7 +69,11 @@ bool validate_wine_dir(const char *path) {
  * @return true if gamemoderun is found in the system path, false otherwise.
  */
 bool check_gamemode_available(void) {
-  return g_find_program_in_path("gamemoderun") != nullptr;
+  char *path = g_find_program_in_path("gamemoderun");
+  bool retval = path != nullptr;
+  if (path)
+    g_free(path);
+  return retval;
 }
 
 /**
@@ -78,7 +82,11 @@ bool check_gamemode_available(void) {
  * @return true if gamescope is found in the system path, false otherwise.
  */
 bool check_gamescope_available(void) {
-  return g_find_program_in_path("gamescope") != nullptr;
+  char *path = g_find_program_in_path("gamescope");
+  bool retval = path != nullptr;
+  if (path)
+    g_free(path);
+  return retval;
 }
 
 /**

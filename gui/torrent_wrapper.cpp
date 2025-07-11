@@ -24,7 +24,6 @@ struct TorrentSession {
 
 static void torrent_download_thread(TorrentSession *ts) {
   using namespace lt;
-  bool done = false;
   while (true) {
     if (ts->should_stop.load())
       break;
@@ -36,14 +35,13 @@ static void torrent_download_thread(TorrentSession *ts) {
       }
       if (const auto st = alert_cast<state_update_alert>(a)) {
         if (!st->status.empty()) {
-          const torrent_status &status = st->status[0];
-          float progress_percent = status.progress * 100.0f;
-          progress_percent = std::clamp(progress_percent, 0.0f, 100.0f);
-          const uint64_t downloaded = status.total_wanted_done;
-          const uint64_t total = status.total_wanted;
-          const uint32_t rate = status.download_payload_rate;
+          const torrent_status &s = st->status[0];
+          const float progress = std::clamp(s.progress * 100.0f, 0.0f, 100.0f);
+          const uint64_t downloaded = s.total_wanted_done;
+          const uint64_t total = s.total_wanted;
+          const uint32_t rate = s.download_payload_rate;
           if (ts->progress_cb) {
-            ts->progress_cb(progress_percent, downloaded, total, rate,
+            ts->progress_cb(progress, downloaded, total, rate,
                             ts->progress_userdata);
           }
         }
@@ -54,7 +52,8 @@ static void torrent_download_thread(TorrentSession *ts) {
           ts->progress_cb(100.0f, s.total_wanted_done, s.total_wanted, 0,
                           ts->progress_userdata);
         }
-        done = true;
+        ts->should_stop.store(true);
+        break;
       }
       if (const auto te = alert_cast<torrent_error_alert>(a)) {
         ts->error_message = te->error.message().empty()
@@ -66,22 +65,20 @@ static void torrent_download_thread(TorrentSession *ts) {
         if (ts->torrent_handle.is_valid()) {
           ts->session->remove_torrent(ts->torrent_handle);
         }
-        done = true;
+        ts->should_stop.store(true);
+        break;
       }
     }
-    if (done || ts->should_stop.load())
-      break;
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     ts->session->post_torrent_updates();
   }
 }
 
-TorrentSession *
-torrent_session_create(const TorrentProgressCallback progress_cb,
-                       void *userdata) {
+TorrentSession *torrent_session_create(const TorrentProgressCallback progress_cb,
+                                       void *userdata) {
   using namespace lt;
   try {
-    settings_pack pack = lt::default_settings();
+    settings_pack pack = default_settings();
     pack.set_int(settings_pack::alert_mask, alert_category::error |
                                                 alert_category::storage |
                                                 alert_category::status);
@@ -128,6 +125,59 @@ int torrent_session_start_download(TorrentSession *session,
     session->error_message = "Failed to start download thread";
     return -1;
   }
+  return 0;
+}
+
+int torrent_session_get_total_size(TorrentSession *session,
+                                   const char *magnet_link,
+                                   uint64_t *size_out) {
+  if (!session || !magnet_link || !size_out)
+    return -1;
+  session->error_message.clear();
+  using namespace lt;
+  error_code ec;
+  auto params = parse_magnet_uri(magnet_link, ec);
+  if (ec) {
+    session->error_message =
+        ec.message().empty() ? "Failed to parse magnet link" : ec.message();
+    return -1;
+  }
+  params.save_path = ".";
+  torrent_handle th;
+  try {
+    th = session->session->add_torrent(std::move(params));
+  } catch (const std::exception &e) {
+    session->error_message = e.what();
+    return -1;
+  }
+  // wait for metadata or error
+  while (true) {
+    std::vector<alert *> alerts;
+    session->session->pop_alerts(&alerts);
+    bool got = false;
+    for (alert *a : alerts) {
+      if (const auto md = alert_cast<metadata_received_alert>(a)) {
+        if (md->handle == th) {
+          size_out[0] = md->handle.torrent_file()->total_size();
+          got = true;
+          break;
+        }
+      }
+      if (const auto te = alert_cast<torrent_error_alert>(a)) {
+        if (te->handle == th) {
+          session->error_message = te->error.message().empty()
+                                       ? "Unknown torrent error"
+                                       : te->error.message();
+          session->session->remove_torrent(th);
+          return -1;
+        }
+      }
+    }
+    if (got)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  session->session->remove_torrent(th);
   return 0;
 }
 

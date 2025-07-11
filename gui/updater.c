@@ -43,6 +43,11 @@ static gchar *patch_path = nullptr;
 static const gchar *sql_generate_update_manifest = nullptr;
 static GBytes *generate_update_manifest_gbytes = nullptr;
 
+/* SQL query to generate the update manifest.
+   Note: The @current_version placeholder is bound in the code. */
+static const gchar *sql_generate_update_manifest_sz = nullptr;
+static GBytes *generate_update_manifest_sz_gbytes = nullptr;
+
 /* SQL query to generate a full file manifest (used for repair operations) */
 static const gchar *sql_generate_full_manifest = nullptr;
 static GBytes *generate_full_file_manifest_gbytes = nullptr;
@@ -225,7 +230,9 @@ static char *compute_file_md5(const char *filepath) {
   }
   g_checksum_update(checksum, (const guchar *)contents, length);
   g_free(contents);
-  return g_strdup(g_checksum_get_string(checksum));
+  char *retval = g_strdup(g_checksum_get_string(checksum));
+  g_free(checksum);
+  return retval;
 }
 
 /*
@@ -359,6 +366,110 @@ static gboolean extract_cabinet(const char *cabinet_path, const char *dest_path,
   if (expected_size > 0 && actual_size != expected_size)
     return FALSE;
   return TRUE;
+}
+
+/**
+ * @brief Return the available free space (bytes) on the host filesystem
+ * containing the path.
+ *
+ * Uses GIO to query the underlying volume, avoiding squashfs FUSE mount
+ * limitations inside AppImages.
+ *
+ * @param path   Path on the filesystem to query.
+ * @param error  Return location for a GError on failure.
+ * @return       Free bytes available, or 0 on error.
+ */
+static guint64 get_free_space_bytes(const char *path, GError **error) {
+  GFile *file = g_file_new_for_path(path);
+  GFileInfo *info = g_file_query_filesystem_info(
+      file, G_FILE_ATTRIBUTE_FILESYSTEM_FREE, nullptr, error);
+  g_object_unref(file);
+  if (!info)
+    return 0;
+
+  guint64 free_bytes =
+      g_file_info_get_attribute_uint64(info, G_FILE_ATTRIBUTE_FILESYSTEM_FREE);
+  g_object_unref(info);
+  return free_bytes;
+}
+
+/**
+ * @brief Sum the uncompressed size of all entries in a ZIP via `unzip -l` using
+ * GRegex.
+ *
+ * @param archive_path Absolute path to the ZIP file.
+ * @param error        Return location for a GError on failure.
+ * @return             Total uncompressed size (bytes), or 0 on error.
+ */
+static guint64 sum_zip_uncompressed_size(const char *archive_path,
+                                         GError **error) {
+  /* Build argv: ["unzip","-l","archive_path",NULL] */
+  GPtrArray *argv_array = g_ptr_array_new_with_free_func(g_free);
+  g_ptr_array_add(argv_array, g_strdup("unzip"));
+  g_ptr_array_add(argv_array, g_strdup("-l"));
+  g_ptr_array_add(argv_array, g_strdup(archive_path));
+  g_ptr_array_add(argv_array, nullptr);
+  const auto argv = (gchar **)g_ptr_array_free(argv_array, false);
+
+  /* Run unzip -l, capture stdout/err */
+  gchar *stdout_buf = nullptr;
+  gchar *stderr_buf = nullptr;
+  gint exit_status = 0;
+  const gboolean ok = g_spawn_sync(
+      nullptr,                               /* working directory */
+      argv, nullptr,                         /* environment */
+      G_SPAWN_SEARCH_PATH, nullptr, nullptr, /* child setup, user data */
+      &stdout_buf, &stderr_buf, &exit_status, error);
+  g_strfreev(argv);
+
+  if (!ok || exit_status != 0) {
+    /* cleanup on error */
+    g_clear_error(error);
+    g_free(stdout_buf);
+    g_free(stderr_buf);
+    return 0;
+  }
+
+  /* Prepare regex to match leading size number */
+  GError *regex_err = nullptr;
+  GRegex *re = g_regex_new("^\\s*([0-9]+)", 0, 0, &regex_err);
+  if (!re) {
+    /* regex compile failed */
+    g_propagate_error(error, regex_err);
+    g_free(stdout_buf);
+    g_free(stderr_buf);
+    return 0;
+  }
+
+  /* Split output into lines */
+  gchar **lines = g_strsplit(stdout_buf, "\n", -1);
+  guint64 total = 0;
+
+  for (gint i = 3; lines[i] != nullptr; i++) {
+    const gchar *line = lines[i];
+    /* Stop at separator or empty line */
+    if (line[0] == '-' || line[0] == '\0')
+      break;
+
+    /* Attempt regex match */
+    GMatchInfo *info = nullptr;
+    if (g_regex_match(re, line, 0, &info)) {
+      gchar *num = g_match_info_fetch(info, 1);
+      if (num) {
+        total += g_ascii_strtoull(num, nullptr, 10);
+        g_free(num);
+      }
+    }
+    g_match_info_free(info);
+  }
+
+  /* Cleanup */
+  g_regex_unref(re);
+  g_strfreev(lines);
+  g_free(stdout_buf);
+  g_free(stderr_buf);
+
+  return total;
 }
 
 /**
@@ -508,6 +619,34 @@ gboolean extract_torrent_base_files(ProgressCallback overall_cb,
   gchar *archive_path =
       g_strdup_printf("%s/%s", torrentprefix_global, torrent_file_name);
 
+  const uint64_t archive_contents_sz =
+      sum_zip_uncompressed_size(archive_path, &error);
+  if (error) {
+    g_warning("Failed to fetch archive contents size: %s", error->message);
+    g_clear_error(&error);
+    g_free(archive_path);
+    g_free(d);
+    return false;
+  }
+
+  const uint64_t free_sz = get_free_space_bytes(gameprefix_global, &error);
+  if (error) {
+    g_warning("Failed to get free space size: %s", error->message);
+    g_clear_error(&error);
+    g_free(archive_path);
+    g_free(d);
+  }
+
+  const uint64_t remaining_sz = free_sz - archive_contents_sz;
+  if (remaining_sz == 0 || remaining_sz > free_sz) {
+    overall_cb(1.0f, "Insufficient space to extract base game files",
+               user_data);
+    g_clear_error(&error);
+    g_free(archive_path);
+    g_free(d);
+    return false;
+  }
+
   d->total_entries = count_zip_entries(archive_path, &error);
   if (d->total_entries == 0) {
     g_warning("Failed to count archive entries");
@@ -567,10 +706,11 @@ gboolean extract_torrent_base_files(ProgressCallback overall_cb,
   g_main_loop_run(d->loop);
 
   g_main_loop_unref(d->loop);
+  const gboolean retval = d->success;
   g_free(archive_path);
   g_free(d);
 
-  return d->success;
+  return retval;
 }
 
 static gboolean download_version_ini(UpdateData *data) {
@@ -602,7 +742,7 @@ static gboolean download_version_ini(UpdateData *data) {
     if (!g_file_delete(dest_file, nullptr, &error)) {
       g_printerr(
           "Unable to delete the old version.ini while fetching the new one.");
-      g_error_free(error);
+      g_clear_error(&error);
       g_object_unref(src_file);
       g_object_unref(dest_file);
       g_free(dest_path);
@@ -615,7 +755,7 @@ static gboolean download_version_ini(UpdateData *data) {
   if (!g_file_move(src_file, dest_file, G_FILE_COPY_NONE, nullptr, nullptr,
                    nullptr, &error)) {
     g_printerr("Failed to move version.ini to game path: %s\n", error->message);
-    g_error_free(error);
+    g_clear_error(&error);
     g_object_unref(src_file);
     g_object_unref(dest_file);
     return FALSE;
@@ -714,6 +854,12 @@ void updater_init() {
     g_error("Error loading SQL resource: %s", error->message);
   }
 
+  generate_update_manifest_sz_gbytes = g_resources_lookup_data(
+      "/com/tera/launcher/generate-update-manifest-sz.sql", 0, &error);
+  if (!generate_update_manifest_sz_gbytes) {
+    g_error("Error loading SQL resource: %s", error->message);
+  }
+
   generate_full_file_manifest_count_gbytes = g_resources_lookup_data(
       "/com/tera/launcher/generate-full-file-manifest-count.sql", 0, &error);
   if (!generate_full_file_manifest_count_gbytes) {
@@ -735,6 +881,12 @@ void updater_init() {
   sql_generate_update_manifest =
       g_bytes_get_data(generate_update_manifest_gbytes, &size);
   if (!sql_generate_update_manifest) {
+    g_error("Could not get update manifest query data from resource.");
+  }
+
+  sql_generate_update_manifest_sz =
+      g_bytes_get_data(generate_update_manifest_sz_gbytes, &size);
+  if (!sql_generate_update_manifest_sz) {
     g_error("Could not get update manifest query data from resource.");
   }
 
@@ -782,7 +934,8 @@ static gboolean parse_version_ini() {
     strcpy(ini_path, "version.ini");
   }
 
-  if (!g_key_file_load_from_file(key_file, ini_path, G_KEY_FILE_NONE, &error)) {
+  if (!g_key_file_load_from_file(key_file, ini_path, G_KEY_FILE_NONE,
+                                 nullptr)) {
     g_object_unref(key_file);
     return FALSE;
   }
@@ -909,6 +1062,51 @@ GList *get_files_to_update(UpdateData *data, ProgressCallback callback,
   }
 
   sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(db, sql_generate_update_manifest_sz, -1, &stmt,
+                         nullptr) != SQLITE_OK) {
+    g_printerr("SQL error: %s\n", sqlite3_errmsg(db));
+    sqlite3_close(db);
+    return update_list;
+  }
+
+  /* Bind the current_version parameter (the first parameter index is 1) */
+  if (sqlite3_bind_int(stmt, 1, current_version) != SQLITE_OK) {
+    g_printerr("Error binding current version: %s\n", sqlite3_errmsg(db));
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return update_list;
+  }
+
+  if (sqlite3_prepare_v2(db, sql_generate_full_manifest_count, -1, &stmt,
+                         nullptr) != SQLITE_OK) {
+    g_printerr("SQL error: %s\n", sqlite3_errmsg(db));
+    sqlite3_close(db);
+    return update_list;
+  }
+
+  uint64_t uncompressed_sz = 0;
+  if (sqlite3_step(stmt) == SQLITE_ROW)
+    uncompressed_sz = sqlite3_column_int(stmt, 0);
+  sqlite3_finalize(stmt);
+  stmt = nullptr;
+
+  GError *error = nullptr;
+  const guint64 free_sz = get_free_space_bytes(gameprefix_global, &error);
+  if (error) {
+    update_progress(callback, 1.0, "Unable to determine free space on disk",
+                    user_data);
+    g_clear_error(&error);
+    return update_list;
+  }
+
+  const uint64_t remaining_sz =
+      free_sz - (uncompressed_sz + (uncompressed_sz / 10));
+  if (remaining_sz == 0 || remaining_sz > uncompressed_sz) {
+    update_progress(callback, 1.0, "Insufficient space to perform update",
+                    user_data);
+    return update_list;
+  }
+
   if (sqlite3_prepare_v2(db, sql_generate_update_manifest, -1, &stmt,
                          nullptr) != SQLITE_OK) {
     g_printerr("SQL error: %s\n", sqlite3_errmsg(db));
@@ -1006,6 +1204,16 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
   }
 
   guint processed = 0;
+  guint64 repair_sz = 0;
+  GError *error = nullptr;
+  uint64_t free_sz = get_free_space_bytes(gameprefix_global, &error);
+  if (error) {
+    update_progress(callback, 1.0, "Unable to determine free space on disk",
+                    user_data);
+    g_clear_error(&error);
+    sqlite3_close(db);
+    return repair_list;
+  }
 
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     const int id = sqlite3_column_int(stmt, 0);
@@ -1054,6 +1262,7 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
         GError *error = nullptr;
         if (!g_file_delete(busted_file, nullptr, &error)) {
           // TODO: See earlier TODO.
+          g_free(busted_file);
           g_printerr("Unable to delete '%s': %s", processed_path,
                      error->message);
           g_clear_error(&error);
@@ -1068,6 +1277,7 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
     info->hash = g_strdup((const char *)hash_text);
     info->size = compressed_size;
     info->decompressed_size = decompressed_size;
+    repair_sz += decompressed_size;
     /* Construct the URL using the same naming convention: IDNUM-VERIDNUM.cab */
     info->url = g_strdup_printf("%s/%s/%d-%d.cab", data->public_patch_url,
                                 patch_path, id, new_ver);
@@ -1076,6 +1286,14 @@ GList *get_files_to_repair(UpdateData *data, ProgressCallback callback,
   }
   sqlite3_finalize(stmt);
   sqlite3_close(db);
+
+  const uint64_t remaining_sz = free_sz - (repair_sz + (repair_sz / 10));
+  if (remaining_sz == 0 || remaining_sz > free_sz) {
+    update_progress(callback, 1.0, "Insufficient disk space to perform repair",
+                    user_data);
+    g_list_free_full(repair_list, free_file_info);
+    return nullptr;
+  }
 
   update_progress(callback, 1.0, "Repair manifest retrieved.", user_data);
   return repair_list;
@@ -1191,7 +1409,7 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
     /* Download the cabinet file for the update.
        Validate that the downloaded file size matches the expected compressed
        size. */
-    ProgressData p_data;
+    ProgressData p_data = {nullptr};
     p_data.callback = callback;
     p_data.download_callback = download_callback;
     p_data.prefix_string = progress_msg;
@@ -1259,7 +1477,7 @@ gboolean download_all_files(UpdateData *data, GList *files_to_update,
     if (!g_file_move(src_file, dest_file, G_FILE_COPY_NONE, nullptr, nullptr,
                      nullptr, &error)) {
       g_printerr("Failed to move file to destination: %s\n", info->path);
-      g_error_free(error);
+      g_clear_error(&error);
       unlink(temp_extract);
       overall_success = FALSE;
     }
@@ -1346,6 +1564,39 @@ gboolean download_from_torrent(ProgressCallback callback,
   pd.session = torrent_session_create(on_torrent_progress, &pd);
   pd.torrent_download_done = false;
   pd.torrent_download_success = false;
+
+  uint64_t sz;
+  if (torrent_session_get_total_size(pd.session, torrent_magnet_link, &sz) !=
+      0) {
+    g_warning("Failed to get total size of base files: %s",
+              torrent_session_get_error(pd.session));
+    torrent_session_close(pd.session);
+    return false;
+  }
+
+  GError *error = nullptr;
+  const guint64 free_space_sz =
+      get_free_space_bytes(torrentprefix_global, &error);
+  if (error) {
+    g_warning("Unable to determine free disk space: %s", error->message);
+    g_clear_error(&error);
+    torrent_session_close(pd.session);
+    return false;
+  }
+
+  // We cannot measure the size of the archive after extraction, but we can
+  // assume it will be at least the size of two archives and then maybe 50%
+  // (deflate on mixed game files is unlikely to achieve this compression ratio
+  // on its own). Just because we can't attempt this via torrent download does
+  // not necessarily mean downloading from the update server directly would fail
+  // as we would not need to store over double the size of the game if only
+  // temporarily.
+  const uint64_t free_remain_sz = free_space_sz - (sz * 2 + (sz / 2));
+  if (free_remain_sz == 0 || free_remain_sz > free_space_sz) {
+    g_warning("Insufficient disk space for torrent download attempt");
+    torrent_session_close(pd.session);
+    return false;
+  }
 
   if (torrent_session_start_download(pd.session, torrent_magnet_link,
                                      torrentprefix_global) != 0) {

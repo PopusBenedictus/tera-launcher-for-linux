@@ -43,6 +43,11 @@ static gchar *patch_path = nullptr;
 static const gchar *sql_generate_update_manifest = nullptr;
 static GBytes *generate_update_manifest_gbytes = nullptr;
 
+/* SQL query to generate the update manifest.
+   Note: The @current_version placeholder is bound in the code. */
+static const gchar *sql_generate_update_manifest_sz = nullptr;
+static GBytes *generate_update_manifest_sz_gbytes = nullptr;
+
 /* SQL query to generate a full file manifest (used for repair operations) */
 static const gchar *sql_generate_full_manifest = nullptr;
 static GBytes *generate_full_file_manifest_gbytes = nullptr;
@@ -849,6 +854,12 @@ void updater_init() {
     g_error("Error loading SQL resource: %s", error->message);
   }
 
+  generate_update_manifest_sz_gbytes = g_resources_lookup_data(
+      "/com/tera/launcher/generate-update-manifest-sz.sql", 0, &error);
+  if (!generate_update_manifest_sz_gbytes) {
+    g_error("Error loading SQL resource: %s", error->message);
+  }
+
   generate_full_file_manifest_count_gbytes = g_resources_lookup_data(
       "/com/tera/launcher/generate-full-file-manifest-count.sql", 0, &error);
   if (!generate_full_file_manifest_count_gbytes) {
@@ -870,6 +881,12 @@ void updater_init() {
   sql_generate_update_manifest =
       g_bytes_get_data(generate_update_manifest_gbytes, &size);
   if (!sql_generate_update_manifest) {
+    g_error("Could not get update manifest query data from resource.");
+  }
+
+  sql_generate_update_manifest_sz =
+      g_bytes_get_data(generate_update_manifest_sz_gbytes, &size);
+  if (!sql_generate_update_manifest_sz) {
     g_error("Could not get update manifest query data from resource.");
   }
 

@@ -364,6 +364,110 @@ static gboolean extract_cabinet(const char *cabinet_path, const char *dest_path,
 }
 
 /**
+ * @brief Return the available free space (bytes) on the host filesystem
+ * containing the path.
+ *
+ * Uses GIO to query the underlying volume, avoiding squashfs FUSE mount
+ * limitations inside AppImages.
+ *
+ * @param path   Path on the filesystem to query.
+ * @param error  Return location for a GError on failure.
+ * @return       Free bytes available, or 0 on error.
+ */
+static guint64 get_free_space_bytes(const char *path, GError **error) {
+  GFile *file = g_file_new_for_path(path);
+  GFileInfo *info = g_file_query_filesystem_info(
+      file, G_FILE_ATTRIBUTE_FILESYSTEM_FREE, nullptr, error);
+  g_object_unref(file);
+  if (!info)
+    return 0;
+
+  guint64 free_bytes =
+      g_file_info_get_attribute_uint64(info, G_FILE_ATTRIBUTE_FILESYSTEM_FREE);
+  g_object_unref(info);
+  return free_bytes;
+}
+
+/**
+ * @brief Sum the uncompressed size of all entries in a ZIP via `unzip -l` using
+ * GRegex.
+ *
+ * @param archive_path Absolute path to the ZIP file.
+ * @param error        Return location for a GError on failure.
+ * @return             Total uncompressed size (bytes), or 0 on error.
+ */
+static guint64 sum_zip_uncompressed_size(const char *archive_path,
+                                         GError **error) {
+  /* Build argv: ["unzip","-l","archive_path",NULL] */
+  GPtrArray *argv_array = g_ptr_array_new_with_free_func(g_free);
+  g_ptr_array_add(argv_array, g_strdup("unzip"));
+  g_ptr_array_add(argv_array, g_strdup("-l"));
+  g_ptr_array_add(argv_array, g_strdup(archive_path));
+  g_ptr_array_add(argv_array, nullptr);
+  const auto argv = (gchar **)g_ptr_array_free(argv_array, false);
+
+  /* Run unzip -l, capture stdout/err */
+  gchar *stdout_buf = nullptr;
+  gchar *stderr_buf = nullptr;
+  gint exit_status = 0;
+  const gboolean ok = g_spawn_sync(
+      nullptr,                               /* working directory */
+      argv, nullptr,                         /* environment */
+      G_SPAWN_SEARCH_PATH, nullptr, nullptr, /* child setup, user data */
+      &stdout_buf, &stderr_buf, &exit_status, error);
+  g_strfreev(argv);
+
+  if (!ok || exit_status != 0) {
+    /* cleanup on error */
+    g_clear_error(error);
+    g_free(stdout_buf);
+    g_free(stderr_buf);
+    return 0;
+  }
+
+  /* Prepare regex to match leading size number */
+  GError *regex_err = nullptr;
+  GRegex *re = g_regex_new("^\\s*([0-9]+)", 0, 0, &regex_err);
+  if (!re) {
+    /* regex compile failed */
+    g_propagate_error(error, regex_err);
+    g_free(stdout_buf);
+    g_free(stderr_buf);
+    return 0;
+  }
+
+  /* Split output into lines */
+  gchar **lines = g_strsplit(stdout_buf, "\n", -1);
+  guint64 total = 0;
+
+  for (gint i = 3; lines[i] != nullptr; i++) {
+    const gchar *line = lines[i];
+    /* Stop at separator or empty line */
+    if (line[0] == '-' || line[0] == '\0')
+      break;
+
+    /* Attempt regex match */
+    GMatchInfo *info = nullptr;
+    if (g_regex_match(re, line, 0, &info)) {
+      gchar *num = g_match_info_fetch(info, 1);
+      if (num) {
+        total += g_ascii_strtoull(num, nullptr, 10);
+        g_free(num);
+      }
+    }
+    g_match_info_free(info);
+  }
+
+  /* Cleanup */
+  g_regex_unref(re);
+  g_strfreev(lines);
+  g_free(stdout_buf);
+  g_free(stderr_buf);
+
+  return total;
+}
+
+/**
  * @brief Count entries in a ZIP archive via `bsdtar -tf`, synchronously.
  *
  * @param archive_path Absolute path to the ZIP file.

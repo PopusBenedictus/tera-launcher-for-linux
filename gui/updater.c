@@ -1062,6 +1062,51 @@ GList *get_files_to_update(UpdateData *data, ProgressCallback callback,
   }
 
   sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(db, sql_generate_update_manifest_sz, -1, &stmt,
+                         nullptr) != SQLITE_OK) {
+    g_printerr("SQL error: %s\n", sqlite3_errmsg(db));
+    sqlite3_close(db);
+    return update_list;
+  }
+
+  /* Bind the current_version parameter (the first parameter index is 1) */
+  if (sqlite3_bind_int(stmt, 1, current_version) != SQLITE_OK) {
+    g_printerr("Error binding current version: %s\n", sqlite3_errmsg(db));
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return update_list;
+  }
+
+  if (sqlite3_prepare_v2(db, sql_generate_full_manifest_count, -1, &stmt,
+                         nullptr) != SQLITE_OK) {
+    g_printerr("SQL error: %s\n", sqlite3_errmsg(db));
+    sqlite3_close(db);
+    return update_list;
+  }
+
+  uint64_t uncompressed_sz = 0;
+  if (sqlite3_step(stmt) == SQLITE_ROW)
+    uncompressed_sz = sqlite3_column_int(stmt, 0);
+  sqlite3_finalize(stmt);
+  stmt = nullptr;
+
+  GError *error = nullptr;
+  const guint64 free_sz = get_free_space_bytes(gameprefix_global, &error);
+  if (error) {
+    update_progress(callback, 1.0, "Unable to determine free space on disk",
+                    user_data);
+    g_clear_error(&error);
+    return update_list;
+  }
+
+  const uint64_t remaining_sz =
+      free_sz - (uncompressed_sz + (uncompressed_sz / 10));
+  if (remaining_sz == 0 || remaining_sz > uncompressed_sz) {
+    update_progress(callback, 1.0, "Insufficient space to perform update",
+                    user_data);
+    return update_list;
+  }
+
   if (sqlite3_prepare_v2(db, sql_generate_update_manifest, -1, &stmt,
                          nullptr) != SQLITE_OK) {
     g_printerr("SQL error: %s\n", sqlite3_errmsg(db));

@@ -40,6 +40,7 @@ A community-created Linux launcher for TERA Online. This project is a **port** (
 
 To build and run this launcher natively, you will need:
 
+* **just** command runner
 * **CMake** (version 3.16 or later)
 * A **C compiler** (e.g., `gcc`) and build tools (such as `make`)
 * **winegcc** (for building the stub‑launcher component)
@@ -58,13 +59,55 @@ To build and run this launcher natively, you will need:
 * **Boost** development libraries (at least `system` and `filesystem` components)
 * An internet connection (for asset fetching)
 
+An optional Nix shell with all dependencies is provided. The shell adds build executables to `PATH` (e.g., `gcc`, `cmake`) and development libraries to CMake env vars (e.g., `CMAKE_LIBRARY_PATH`, `CMAKE_INCLUDE_PATH`) automatically.
+
+Install Nix with the [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer).
+
+The Nix shell subprocess can be started with `nix develop`.
+
+Alternatively, install [direnv](https://direnv.net/#basic-installation) to automatically load and unload the Nix shell variables in your current shell when `cd`-ing in and out of the project (with its shell hook) or when opening a project in editors (with its [editor integration](https://github.com/direnv/direnv/wiki#editor-integration)).
+
 This has been tested to build on:
 
+* Nix shell on most Linux distributions
 * Ubuntu 24.04 LTS
 * Fedora 42 Workstation
 * Arch Linux
 
 > **Note:** If you only intend to build via **AppImage Mode**, you do **not** need to install these host dependencies locally— the Docker container provides all necessary tools and libraries.
+
+### Nix Shell
+
+Without direnv:
+
+```bash
+# clone
+git clone https://github.com/PopusBenedictus/tera-launcher-for-linux.git
+
+cd tera-launcher-for-linux
+
+# start Nix Bash subshell
+nix develop
+
+# develop
+
+# ctrl + D to exit Nix Bash subshell
+```
+
+With direnv:
+
+```bash
+# clone
+git clone https://github.com/PopusBenedictus/tera-launcher-for-linux.git
+
+# direnv applies Nix shell env vars to current shell (no subprocess)
+cd tera-launcher-for-linux
+
+# develop
+
+# direnv unloads Nix shell env vars
+cd ..
+```
 
 ### Ubuntu/Debian‑based
 
@@ -182,19 +225,10 @@ Follow the original CMake-based instructions:
    # edit launcher-config.json as needed
    ```
 
-2. **Create** a build directory and run CMake:
+2. **Build**:
 
    ```bash
-   mkdir build && cd build
-   cmake ..
-   # or with custom config:
-   # cmake .. -DCUSTOM_CONFIG_PATH="/path/to/launcher-config.json"
-   ```
-
-3. **Build**:
-
-   ```bash
-   cmake --build .
+   just build
    ```
 
 ---

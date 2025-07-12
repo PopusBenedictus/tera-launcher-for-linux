@@ -298,7 +298,7 @@ static void on_gamescope_toggled(GtkCheckButton *toggle, gpointer user_data) {
  * @param message The error message.
  */
 static void show_error_dialog(GtkWindow *parent, const char *message) {
-  GtkAlertDialog *alert = gtk_alert_dialog_new(message);
+  GtkAlertDialog *alert = gtk_alert_dialog_new("%s", message);
   gtk_alert_dialog_set_modal(alert, TRUE);
   gtk_alert_dialog_show(alert, parent);
 }

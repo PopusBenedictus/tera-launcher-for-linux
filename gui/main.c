@@ -214,6 +214,28 @@ char tera_toolbox_path_global[FIXED_STRING_FIELD_SZ] = {0};
 char gamescope_args_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
+ * @brief Download URL for the x86 dotnet runtime required for Shinra Meter.
+ */
+char dotnet_download_url_x86_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief SHA-512 validation hash for the x86 dotnet runtime required for Shinra
+ * Meter.
+ */
+char dotnet_download_hash_x86_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Download URL for the x64 dotnet runtime required for Shinra Meter.
+ */
+char dotnet_download_url_x64_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief SHA-512 validation hash for the x64 dotnet runtime required for Shinra
+ * Meter.
+ */
+char dotnet_download_hash_x64_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief If set to TRUE, attempt to launch TERA Online using Feral Game Mode.
  * Turned off by default.
  */
@@ -1580,6 +1602,15 @@ static gboolean launcher_init_config(GtkApplication *app) {
                         game_lang_global);
   parse_and_copy_string(app, launcher_config_json, "service_name",
                         service_name_global);
+
+  parse_and_copy_string(app, launcher_config_json, "x86_dotnet_runtime_url",
+                        dotnet_download_url_x86_global);
+  parse_and_copy_string(app, launcher_config_json, "x86_dotnet_runtime_hash",
+                        dotnet_download_hash_x86_global);
+  parse_and_copy_string(app, launcher_config_json, "x64_dotnet_runtime_url",
+                        dotnet_download_url_x64_global);
+  parse_and_copy_string(app, launcher_config_json, "x64_dotnet_runtime_hash",
+                        dotnet_download_hash_x64_global);
 
   torrent_download_enabled = parse_and_copy_bool(app, launcher_config_json,
                                                  "torrent_download_enabled");

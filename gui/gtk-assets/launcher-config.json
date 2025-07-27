@@ -10,6 +10,10 @@
   "torrent_prefix_name": ".terastarscape/torrent",
   "torrent_magnet_link": "magnet:?xt=urn:btih:RHBA7LDWYCWIQDBBGN7PZBBEMZWVLA7X&dn=TERA%20Starscape.zip&xl=63357892348&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce",
   "torrent_payload_file_name": "TERA Starscape.zip",
+  "x86_dotnet_runtime_url": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/5.0.17/windowsdesktop-runtime-5.0.17-win-x86.exe",
+  "x86_dotnet_runtime_hash": "74a379323e52172f563cd996880f58d58a19303ae59b3f55ff52625dfe8a4a602609785b1174b38f2da97282f90f1ade53194354f48773512943eae249926ee8",
+  "x64_dotnet_runtime_url": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/5.0.17/windowsdesktop-runtime-5.0.17-win-x64.exe",
+  "x64_dotnet_runtime_hash": "f7eb69a953ff6346a180e5200075120b4b47cb89a75bc36c76a9e468c037bb2376f497dbf8e0bada152bc3ec35dceaad55d0a811586569575bf5b201d1e32baf",
   "game_lang": "EUR",
   "public_launcher_assets": [
     "bg.jpg",

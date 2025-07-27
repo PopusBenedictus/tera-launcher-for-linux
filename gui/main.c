@@ -281,6 +281,12 @@ bool plaintext_login_info_storage = false;
 bool torrent_download_enabled = false;
 
 /**
+ * @brief If set to TRUE, indicates that curl has already been initialized by a
+ * function and should not be initialized again.
+ */
+bool curl_inited = false;
+
+/**
  * @brief Used to store the final update thread message, if any, to update
  * progress bar label when the update resources are being thrown out.
  */
@@ -801,6 +807,11 @@ void download_file_to_temp_async_free(AsyncDownload *job) {
  */
 static bool do_login(const char *username, const char *password,
                      LoginData *out) {
+  if (!curl_inited) {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl_inited = true;
+  }
+
   CURL *curl = curl_easy_init();
   if (!curl) {
     g_warning("Failed to initialize cURL");

@@ -76,6 +76,40 @@ struct CurlResponse {
 };
 
 /**
+ * @struct AsyncDownload
+ * @brief Holds state for an asynchronous download operation.
+ *
+ * @var AsyncDownload::thread
+ *   The GThread performing the download.
+ * @var AsyncDownload::url
+ *   The URL being fetched (owned).
+ * @var AsyncDownload::dir
+ *   Directory to save file, or NULL to use a temporary file.
+ * @var AsyncDownload::overwrite
+ *   Whether to overwrite an existing file in @p dir.
+ * @var AsyncDownload::expected_hash
+ *   Optional hex-encoded SHA-512 hash for validating the file.
+ * @var AsyncDownload::filename
+ *   On success, the path to the (downloaded or existing) file (owned, free with
+ * g_free()).
+ * @var AsyncDownload::error
+ *   On failure, a GError describing what went wrong (owned, free with
+ * g_clear_error()).
+ * @var AsyncDownload::done
+ *   Flag set to %TRUE when the background download completes.
+ */
+typedef struct {
+  GThread *thread;
+  gchar *url;
+  gchar *dir;
+  gboolean overwrite;
+  gchar *expected_hash;
+  gchar *filename;
+  GError *error;
+  volatile gboolean done;
+} AsyncDownload;
+
+/**
  * @brief The username of the last successful login.
  */
 char last_successful_login_username_global[FIXED_STRING_FIELD_SZ] = {0};
@@ -406,6 +440,333 @@ static size_t write_callback(const void *contents, size_t size, size_t nmemb,
   mem->size += realsize;
   mem->data[mem->size] = 0;
   return realsize;
+}
+
+/**
+ * @brief Validate SHA-512 checksum of a file.
+ *
+ * Reads the file at @p filepath, computes its SHA-512 checksum, and
+ * compares it to @p expected_hash (hex string, case-insensitive).
+ *
+ * @param[in]  filepath      Path to the file to validate.
+ * @param[in]  expected_hash Hex-encoded SHA-512 hash to compare against.
+ * @param[out] error         Return location for a GError* on mismatch or read
+ * error.
+ *
+ * @return %TRUE if the computed hash matches @p expected_hash; %FALSE otherwise
+ * (*error* set).
+ */
+static gboolean validate_file_checksum(const gchar *filepath,
+                                       const gchar *expected_hash,
+                                       GError **error) {
+  GChecksum *checksum = g_checksum_new(G_CHECKSUM_SHA512);
+  FILE *fp = fopen(filepath, "rb");
+  if (!fp) {
+    g_set_error(error, G_IO_ERROR, g_file_error_from_errno(errno),
+                "Failed to open '%s' for checksum: %s", filepath,
+                g_strerror(errno));
+    g_checksum_free(checksum);
+    return false;
+  }
+
+  guint8 buf[8192];
+  gssize len;
+  while ((len = (gssize)fread(buf, 1, sizeof(buf), fp)) > 0) {
+    g_checksum_update(checksum, buf, len);
+  }
+  if (ferror(fp)) {
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "Error reading '%s' for checksum", filepath);
+    fclose(fp);
+    g_checksum_free(checksum);
+    return false;
+  }
+  fclose(fp);
+
+  const gchar *sum = g_checksum_get_string(checksum);
+  const gboolean ok = (g_ascii_strcasecmp(sum, expected_hash) == 0);
+  if (!ok) {
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "Checksum mismatch for '%s': expected %s, got %s", filepath,
+                expected_hash, sum);
+  }
+  g_checksum_free(checksum);
+  return ok;
+}
+
+/**
+ * @brief Download a file from a URL into a secure temporary file.
+ *
+ * Initializes libcurl (once), creates a POSIX‑style temporary file via
+ * g_file_open_tmp(), and writes the downloaded data into it.
+ *
+ * @param[in]  url    The HTTP(S) URL to download.
+ * @param[out] error  Return location for a GError* on failure.
+ *                     Caller must g_clear_error() when done.
+ *
+ * @return
+ *   - On success: a newly‑allocated string containing the full path
+ *     to the temp file (free with g_free()).
+ *   - On failure: NULL and @error is set.
+ */
+gchar *download_file_to_temp(const gchar *url, GError **error) {
+  if (!curl_inited) {
+    const CURLcode ccode = curl_global_init(CURL_GLOBAL_DEFAULT);
+    if (ccode != CURLE_OK) {
+      g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                  "curl_global_init() failed: %s", curl_easy_strerror(ccode));
+      return nullptr;
+    }
+    curl_inited = true;
+  }
+
+  /* Filename template must not contain a slash */
+  const gchar *tmpl = "download-XXXXXX";
+  gchar *filename = nullptr;
+  const gint fd = g_file_open_tmp(tmpl, &filename, error);
+  if (fd < 0)
+    return nullptr;
+
+  /* Wrap the descriptor in a FILE* for curl */
+  FILE *fp = fdopen(fd, "wb");
+  if (!fp) {
+    g_set_error(error, G_IO_ERROR, g_file_error_from_errno(errno),
+                "fdopen() failed on '%s': %s", filename, g_strerror(errno));
+    close(fd);
+    g_free(filename);
+    return nullptr;
+  }
+
+  /* Set up and perform the download */
+  CURL *curl = curl_easy_init();
+  if (!curl) {
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "curl_easy_init() failed");
+    fclose(fp);
+    g_free(filename);
+    return nullptr;
+  }
+
+  curl_easy_setopt(curl, CURLOPT_URL, url);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullptr);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+
+  const CURLcode res = curl_easy_perform(curl);
+  if (res != CURLE_OK) {
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Download failed: %s",
+                curl_easy_strerror(res));
+    curl_easy_cleanup(curl);
+    fclose(fp);
+    g_free(filename);
+    return nullptr;
+  }
+
+  curl_easy_cleanup(curl);
+  fclose(fp);
+
+  return filename;
+}
+
+/**
+ * @brief Thread function for temp-file async download with optional validation.
+ * @param[in] user_data  Pointer to AsyncDownload.
+ * @return NULL
+ */
+static gpointer download_temp_thread(gpointer user_data) {
+  AsyncDownload *job = user_data;
+
+  g_atomic_pointer_set(&job->filename, download_file_to_temp(job->url, &job->error));
+  if (job->filename && job->expected_hash) {
+    if (!validate_file_checksum(job->filename, job->expected_hash,
+                                &job->error)) {
+      g_free(job->filename);
+      g_atomic_pointer_set(&job->filename, nullptr);
+    }
+  }
+  g_atomic_int_set(&job->done, TRUE);
+  return nullptr;
+}
+
+/**
+ * @brief Start an async temp-file download with optional SHA-512 validation.
+ *
+ * @param[in]  url            The HTTP(S) URL to download.
+ * @param[in]  expected_hash  Optional hex-encoded SHA-512 hash to validate;
+ * pass NULL to skip validation.
+ *
+ * @return A newly-allocated AsyncDownload*; free with
+ * download_file_to_temp_async_free().
+ */
+AsyncDownload *download_file_to_temp_async(const gchar *url,
+                                           const gchar *expected_hash) {
+  AsyncDownload *job = g_new0(AsyncDownload, 1);
+  job->url = g_strdup(url);
+  job->dir = nullptr;
+  job->overwrite = false;
+  job->expected_hash = expected_hash ? g_strdup(expected_hash) : nullptr;
+  job->done = false;
+  job->thread = g_thread_new("download-temp-thread", download_temp_thread, job);
+  return job;
+}
+
+/**
+ * @brief Derive a filename from the last segment of a URL.
+ * @param[in] url  The URL to parse.
+ * @return Newly-allocated basename (free with g_free()).
+ */
+static gchar *derive_basename_from_url(const gchar *url) {
+  GError *gerr = nullptr;
+  GUri *uri = g_uri_parse(url, G_URI_FLAGS_NONE, &gerr);
+  gchar *base;
+  if (uri) {
+    const gchar *path = g_uri_get_path(uri);
+    base = (path && *path) ? g_path_get_basename(path)
+                           : g_strdup("downloaded.file");
+    g_uri_unref(uri);
+  } else {
+    const gchar *slash = strrchr(url, '/');
+    base = (slash && *(slash + 1)) ? g_strdup(slash + 1)
+                                   : g_strdup("downloaded.file");
+  }
+  return base;
+}
+
+/**
+ * @brief Thread function that performs a directory-based download with optional
+ * overwrite and validation.
+ * @param[in] user_data  Pointer to AsyncDownload.
+ * @return NULL
+ */
+static gpointer download_dir_thread(gpointer user_data) {
+  AsyncDownload *job = user_data;
+
+  gchar *base = derive_basename_from_url(job->url);
+  gchar *filepath = g_build_filename(job->dir, base, nullptr);
+  g_free(base);
+
+  /* Check existing file */
+  if (g_file_test(filepath, G_FILE_TEST_EXISTS)) {
+    if (!job->overwrite) {
+      if (job->expected_hash) {
+        if (validate_file_checksum(filepath, job->expected_hash, &job->error)) {
+          g_atomic_pointer_set(&job->filename, g_strdup(filepath));
+          g_atomic_int_set(&job->done, true);
+          g_free(filepath);
+          return nullptr;
+        }
+        /* mismatch: proceed to re-download */
+      } else {
+        g_atomic_pointer_set(&job->filename, g_strdup(filepath));
+        g_atomic_int_set(&job->done, true);
+        g_free(filepath);
+        return nullptr;
+      }
+    } else {
+      /* remove old file before overwrite */
+      if (remove(filepath) != 0) {
+        g_set_error(&job->error, G_IO_ERROR, g_file_error_from_errno(errno),
+                    "Failed to remove '%s': %s", filepath, g_strerror(errno));
+        g_free(filepath);
+        g_atomic_int_set(&job->done, true);
+        return nullptr;
+      }
+    }
+  }
+
+  /* Download into file */
+  FILE *fp = fopen(filepath, "wb");
+  if (!fp) {
+    g_set_error(&job->error, G_IO_ERROR, g_file_error_from_errno(errno),
+                "Failed to open '%s': %s", filepath, g_strerror(errno));
+    g_free(filepath);
+    g_atomic_int_set(&job->done, true);
+    return nullptr;
+  }
+
+  CURL *curl = curl_easy_init();
+  if (!curl) {
+    g_set_error(&job->error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "curl_easy_init() failed");
+    fclose(fp);
+    g_free(filepath);
+    g_atomic_int_set(&job->done, true);
+    return nullptr;
+  }
+
+  curl_easy_setopt(curl, CURLOPT_URL, job->url);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullptr);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+
+  const CURLcode res = curl_easy_perform(curl);
+  curl_easy_cleanup(curl);
+  fclose(fp);
+
+  if (res != CURLE_OK) {
+    g_set_error(&job->error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "Download failed: %s", curl_easy_strerror(res));
+    g_free(filepath);
+  } else if (job->expected_hash) {
+    /* Validate downloaded file */
+    if (validate_file_checksum(filepath, job->expected_hash, &job->error)) {
+      g_atomic_pointer_set(&job->filename, filepath);
+    } else {
+      g_free(filepath);
+    }
+  } else {
+    g_atomic_pointer_set(&job->filename, filepath);
+  }
+
+  g_atomic_int_set(&job->done, true);
+  return nullptr;
+}
+
+/**
+ * @brief Start an async directory-based download with optional overwrite and
+ * SHA-512 validation.
+ *
+ * @param[in] url            The HTTP(S) URL to download.
+ * @param[in] dir            Directory in which to save the file.
+ * @param[in] overwrite      If FALSE and the file exists, skip download (and
+ * validate if @p expected_hash).
+ * @param[in] expected_hash  Optional hex-encoded SHA-512 hash to validate; pass
+ * NULL to skip validation.
+ *
+ * @return A newly-allocated AsyncDownload*; free with
+ * download_file_to_temp_async_free().
+ */
+AsyncDownload *download_file_to_dir_async(const gchar *url, const gchar *dir,
+                                          gboolean overwrite,
+                                          const gchar *expected_hash) {
+  AsyncDownload *job = g_new0(AsyncDownload, 1);
+  job->url = g_strdup(url);
+  job->dir = g_strdup(dir);
+  job->overwrite = overwrite;
+  job->expected_hash = expected_hash ? g_strdup(expected_hash) : nullptr;
+  job->done = false;
+  job->thread = g_thread_new("download-dir-thread", download_dir_thread, job);
+  return job;
+}
+
+/**
+ * @brief Clean up an AsyncDownload, joining the thread if needed.
+ *
+ * @param[in] job  The AsyncDownload to free.  After this call, @p job
+ *                 and its contents are invalid.
+ */
+void download_file_to_temp_async_free(AsyncDownload *job) {
+  if (!job)
+    return;
+  if (job->thread) {
+    g_thread_join(job->thread);
+  }
+  g_free(job->url);
+  g_free(job->dir);
+  g_free(job->expected_hash);
+  g_free(job->filename);
+  g_clear_error(&job->error);
+  g_free(job);
 }
 
 /**

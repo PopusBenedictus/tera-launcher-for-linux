@@ -2306,7 +2306,7 @@ static void game_dotnet_runtime_check_thread_watcher(GPid pid, gint wait_status,
                                                      gpointer user_data) {
   UpdateThreadData *td = user_data;
   GError *err = nullptr;
-  g_atomic_int_inc(&td->dotnet_setup_done_count);
+  g_atomic_int_add(&td->dotnet_setup_done_count, 1);
   if (g_atomic_int_get(&td->dotnet_setup_done_count) == 2)
     g_atomic_int_set(&td->dotnet_setup_success,
                      g_spawn_check_wait_status(wait_status, &err));

@@ -2293,6 +2293,28 @@ static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
 }
 
 /**
+ * @brief Callback used to handle exit status of dotnet runtime check.
+ * @param pid Thread PID for the wineprefix health check thread.
+ * @param wait_status A GTK-specific wait status to be checked for abnormal
+ * termination.
+ * @param user_data Our update thread data struct.
+ */
+static void game_dotnet_runtime_check_thread_watcher(GPid pid, gint wait_status,
+                                                     gpointer user_data) {
+  UpdateThreadData *td = user_data;
+  GError *err = nullptr;
+  g_atomic_int_inc(&td->dotnet_setup_done_count);
+  if (g_atomic_int_get(&td->dotnet_setup_done_count) == 2)
+    g_atomic_int_set(&td->dotnet_setup_success,
+                     g_spawn_check_wait_status(wait_status, &err));
+  if (err) {
+    g_message("Winetricks exit code %i: %s", err->code, err->message);
+    g_error_free(err);
+  }
+  g_spawn_close_pid(pid);
+}
+
+/**
  * @brief Prepare wineprefix if it does not exist and install dependencies.
  *
  * @param envp Environment variables to use when launching winetricks.

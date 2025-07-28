@@ -63,8 +63,8 @@ typedef struct {
   gboolean window_sensitive;
   gboolean wine_env_setup_done;
   gboolean wine_env_setup_success;
-  gint dotnet_setup_done_count;
-  gboolean dotnet_setup_success;
+  volatile gint dotnet_setup_done_count;
+  volatile gboolean dotnet_setup_success;
 } UpdateThreadData;
 
 /**

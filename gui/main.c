@@ -2448,6 +2448,7 @@ static gpointer game_launcher_thread(gpointer data) {
   thread_data->window_minimized = false;
   thread_data->wine_env_setup_done = false;
   thread_data->wine_env_setup_success = false;
+  thread_data->dotnet_setup_success = false;
   thread_data->update_data.download_progress_bar =
       GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar);
   thread_data->update_data.progress_bar =

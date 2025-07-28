@@ -2380,7 +2380,7 @@ static bool prepare_wineprefix(gchar **envp, gchar *wine_bin,
       dotnet_download_url_x64_global, configprefix_global, false,
       dotnet_download_hash_x64_global);
 
-  while (!g_atomic_int_get(&job_x86->done) &&
+  while (!g_atomic_int_get(&job_x86->done) ||
          !g_atomic_int_get(&job_x64->done)) {
     thread_data->current_progress = 0.6;
     thread_data->current_message = "Downloading Dotnet Runtimes";
@@ -2406,7 +2406,7 @@ static bool prepare_wineprefix(gchar **envp, gchar *wine_bin,
   GPtrArray *argv_dotnet = g_ptr_array_new();
   g_ptr_array_add(argv_dotnet, g_strdup("/quiet"));
   g_ptr_array_add(argv_dotnet, nullptr);
-  const auto argv_dotnet_partial = (gchar **)g_ptr_array_free(argv, false);
+  const auto argv_dotnet_partial = (gchar **)g_ptr_array_free(argv_dotnet, false);
 
   gchar **argv_dotnet_x86 = build_launch_argv(
       job_x86->filename, use_gamemoderun, false, gamescope_args_global,

@@ -2343,7 +2343,7 @@ static bool prepare_wineprefix(gchar **envp, gchar *wine_bin,
 
   GError *err = nullptr;
   GPid child_pid = 0;
-  const gboolean ok =
+  gboolean ok =
       g_spawn_async(nullptr, argv_complete, envp, G_SPAWN_DO_NOT_REAP_CHILD,
                     nullptr, nullptr, &child_pid, &err);
 

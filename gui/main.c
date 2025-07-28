@@ -2296,10 +2296,12 @@ static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
  * @brief Prepare wineprefix if it does not exist and install dependencies.
  *
  * @param envp Environment variables to use when launching winetricks.
+ * @param wine_bin Path to the wine binary.
  * @param thread_data Update thread struct for GUI updates while performing the
  * task.
  */
-static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
+static bool prepare_wineprefix(gchar **envp, gchar *wine_bin,
+                               UpdateThreadData *thread_data) {
   gchar *winetricks = g_find_program_in_path("winetricks");
   if (!winetricks) {
     g_warning("Failed to find winetricks");
@@ -2546,7 +2548,7 @@ static gpointer game_launcher_thread(gpointer data) {
   GError *err = nullptr;
   gint status = 0;
 
-  if (!prepare_wineprefix(envp, thread_data)) {
+  if (!prepare_wineprefix(envp, wine_bin, thread_data)) {
     thread_data->current_progress = 0.0;
     thread_data->current_message = "Failed to Launch Game";
     thread_data->current_download_progress = 1.0;

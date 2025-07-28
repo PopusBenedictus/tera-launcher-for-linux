@@ -2370,8 +2370,98 @@ static bool prepare_wineprefix(gchar **envp, gchar *wine_bin,
     return false;
   }
 
+  AsyncDownload *job_x86 = download_file_to_dir_async(
+      dotnet_download_url_x86_global, configprefix_global, false,
+      dotnet_download_hash_x86_global);
+  AsyncDownload *job_x64 = download_file_to_dir_async(
+      dotnet_download_url_x64_global, configprefix_global, false,
+      dotnet_download_hash_x64_global);
+
+  while (!g_atomic_int_get(&job_x86->done) &&
+         !g_atomic_int_get(&job_x64->done)) {
+    thread_data->current_progress = 0.6;
+    thread_data->current_message = "Downloading Dotnet Runtimes";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Might take awhile the first time";
+    thread_data->enable_pulse = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_usleep(500000);
+  }
+
+  if (!g_atomic_pointer_get(&job_x86->filename) ||
+      !g_atomic_pointer_get(&job_x64->filename)) {
+    g_warning("Unable to fetch one or more runtimes: x86 (%s), x64 (%s)",
+              job_x86->filename, job_x64->filename);
+    download_file_to_temp_async_free(job_x86);
+    download_file_to_temp_async_free(job_x64);
+    return false;
+  }
+
+  GPtrArray *argv_dotnet = g_ptr_array_new();
+  g_ptr_array_add(argv_dotnet, g_strdup("/quiet"));
+  g_ptr_array_add(argv_dotnet, nullptr);
+  const auto argv_dotnet_partial = (gchar **)g_ptr_array_free(argv, false);
+
+  gchar **argv_dotnet_x86 = build_launch_argv(
+      job_x86->filename, use_gamemoderun, false, gamescope_args_global,
+      (const gchar **)argv_dotnet_partial, wine_bin);
+
+  gchar **argv_dotnet_x64 = build_launch_argv(
+      job_x64->filename, use_gamemoderun, false, gamescope_args_global,
+      (const gchar **)argv_dotnet_partial, wine_bin);
+
+  child_pid = 0;
+  ok = g_spawn_async(nullptr, argv_dotnet_x86, envp, G_SPAWN_DO_NOT_REAP_CHILD,
+                     nullptr, nullptr, &child_pid, &err);
+  GError *err2;
+  GPid child_pid2 = 0;
+  const gboolean ok2 =
+      g_spawn_async(nullptr, argv_dotnet_x64, envp, G_SPAWN_DO_NOT_REAP_CHILD,
+                    nullptr, nullptr, &child_pid2, &err2);
+
+  g_child_watch_add(child_pid,
+                    (GChildWatchFunc)game_dotnet_runtime_check_thread_watcher,
+                    thread_data);
+  g_child_watch_add(child_pid2,
+                    (GChildWatchFunc)game_dotnet_runtime_check_thread_watcher,
+                    thread_data);
+
+  while (g_atomic_int_get(&thread_data->dotnet_setup_done_count) < 2) {
+    thread_data->current_progress = 0.75;
+    thread_data->current_message = "Installing Dotnet Runtimes";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Might take awhile the first time";
+    thread_data->enable_pulse = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_usleep(500000);
+  }
+
+  download_file_to_temp_async_free(job_x86);
+  download_file_to_temp_async_free(job_x64);
   g_strfreev(argv_complete);
-  return true;
+  g_strfreev(argv_dotnet_partial);
+  g_strfreev(argv_dotnet_x86);
+  g_strfreev(argv_dotnet_x64);
+
+  if (!ok || !ok2) {
+    g_warning(
+        "One or both runtimes failed to start installation: x86 (%s), x64 (%s)",
+        err ? err->message : nullptr, err2 ? err2->message : nullptr);
+    g_clear_error(&err);
+    g_clear_error(&err2);
+    return false;
+  }
+
+  if (!thread_data->dotnet_setup_success)
+    g_warning("Dotnet setup did not succeed");
+
+  return thread_data->dotnet_setup_success;
 }
 
 /**

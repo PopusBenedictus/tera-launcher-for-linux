@@ -7,7 +7,7 @@ set -euo pipefail
 REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-main}"
 CLONE_REPO="${CLONE_REPO:-0}"
-GE_PROTON_VERSION="${GE_PROTON_VERSION:-GE-Proton10-7}"
+GE_PROTON_VERSION="${GE_PROTON_VERSION:-GE-Proton10-10}"
 GE_PROTON_TARBALL="${GE_PROTON_TARBALL:-${GE_PROTON_VERSION}.tar.gz}"
 GE_PROTON_URL="${GE_PROTON_URL:-https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_PROTON_VERSION}/${GE_PROTON_TARBALL}}"
 GE_PROTON_DEST="ge-proton"

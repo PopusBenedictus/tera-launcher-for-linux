@@ -74,8 +74,9 @@ static void torrent_download_thread(TorrentSession *ts) {
   }
 }
 
-TorrentSession *torrent_session_create(const TorrentProgressCallback progress_cb,
-                                       void *userdata) {
+TorrentSession *
+torrent_session_create(const TorrentProgressCallback progress_cb,
+                       void *userdata) {
   using namespace lt;
   try {
     settings_pack pack = default_settings();

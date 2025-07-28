@@ -2183,9 +2183,7 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
   else
     g_free(resolved_wine);
 
-  envp = g_environ_setenv(envp, "WINEDEBUG", "-all", true);
   envp = g_environ_setenv(envp, "WINEARCH", "win64", true);
-  envp = g_environ_setenv(envp, "DXVK_LOG_LEVEL", "none", true);
 
   if (enable_wsi_fix) {
     FILE *mods = fopen("/proc/modules", "r");

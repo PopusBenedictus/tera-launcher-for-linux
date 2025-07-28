@@ -604,7 +604,8 @@ gchar *download_file_to_temp(const gchar *url, GError **error) {
 static gpointer download_temp_thread(gpointer user_data) {
   AsyncDownload *job = user_data;
 
-  g_atomic_pointer_set(&job->filename, download_file_to_temp(job->url, &job->error));
+  g_atomic_pointer_set(&job->filename,
+                       download_file_to_temp(job->url, &job->error));
   if (job->filename && job->expected_hash) {
     if (!validate_file_checksum(job->filename, job->expected_hash,
                                 &job->error)) {

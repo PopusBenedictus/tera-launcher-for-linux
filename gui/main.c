@@ -63,6 +63,8 @@ typedef struct {
   gboolean window_sensitive;
   gboolean wine_env_setup_done;
   gboolean wine_env_setup_success;
+  gint dotnet_setup_done_count;
+  gboolean dotnet_setup_success;
 } UpdateThreadData;
 
 /**
@@ -72,6 +74,40 @@ struct CurlResponse {
   char *data;
   size_t size;
 };
+
+/**
+ * @struct AsyncDownload
+ * @brief Holds state for an asynchronous download operation.
+ *
+ * @var AsyncDownload::thread
+ *   The GThread performing the download.
+ * @var AsyncDownload::url
+ *   The URL being fetched (owned).
+ * @var AsyncDownload::dir
+ *   Directory to save file, or NULL to use a temporary file.
+ * @var AsyncDownload::overwrite
+ *   Whether to overwrite an existing file in @p dir.
+ * @var AsyncDownload::expected_hash
+ *   Optional hex-encoded SHA-512 hash for validating the file.
+ * @var AsyncDownload::filename
+ *   On success, the path to the (downloaded or existing) file (owned, free with
+ * g_free()).
+ * @var AsyncDownload::error
+ *   On failure, a GError describing what went wrong (owned, free with
+ * g_clear_error()).
+ * @var AsyncDownload::done
+ *   Flag set to %TRUE when the background download completes.
+ */
+typedef struct {
+  GThread *thread;
+  gchar *url;
+  gchar *dir;
+  gboolean overwrite;
+  gchar *expected_hash;
+  gchar *filename;
+  GError *error;
+  volatile gboolean done;
+} AsyncDownload;
 
 /**
  * @brief The username of the last successful login.
@@ -178,6 +214,28 @@ char tera_toolbox_path_global[FIXED_STRING_FIELD_SZ] = {0};
 char gamescope_args_global[FIXED_STRING_FIELD_SZ] = {0};
 
 /**
+ * @brief Download URL for the x86 dotnet runtime required for Shinra Meter.
+ */
+char dotnet_download_url_x86_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief SHA-512 validation hash for the x86 dotnet runtime required for Shinra
+ * Meter.
+ */
+char dotnet_download_hash_x86_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief Download URL for the x64 dotnet runtime required for Shinra Meter.
+ */
+char dotnet_download_url_x64_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
+ * @brief SHA-512 validation hash for the x64 dotnet runtime required for Shinra
+ * Meter.
+ */
+char dotnet_download_hash_x64_global[FIXED_STRING_FIELD_SZ] = {0};
+
+/**
  * @brief If set to TRUE, attempt to launch TERA Online using Feral Game Mode.
  * Turned off by default.
  */
@@ -221,6 +279,12 @@ bool plaintext_login_info_storage = false;
  * if necessary. This is configured at compile time from embedded JSON resource.
  */
 bool torrent_download_enabled = false;
+
+/**
+ * @brief If set to TRUE, indicates that curl has already been initialized by a
+ * function and should not be initialized again.
+ */
+bool curl_inited = false;
 
 /**
  * @brief Used to store the final update thread message, if any, to update
@@ -407,6 +471,334 @@ static size_t write_callback(const void *contents, size_t size, size_t nmemb,
 }
 
 /**
+ * @brief Validate SHA-512 checksum of a file.
+ *
+ * Reads the file at @p filepath, computes its SHA-512 checksum, and
+ * compares it to @p expected_hash (hex string, case-insensitive).
+ *
+ * @param[in]  filepath      Path to the file to validate.
+ * @param[in]  expected_hash Hex-encoded SHA-512 hash to compare against.
+ * @param[out] error         Return location for a GError* on mismatch or read
+ * error.
+ *
+ * @return %TRUE if the computed hash matches @p expected_hash; %FALSE otherwise
+ * (*error* set).
+ */
+static gboolean validate_file_checksum(const gchar *filepath,
+                                       const gchar *expected_hash,
+                                       GError **error) {
+  GChecksum *checksum = g_checksum_new(G_CHECKSUM_SHA512);
+  FILE *fp = fopen(filepath, "rb");
+  if (!fp) {
+    g_set_error(error, G_IO_ERROR, g_file_error_from_errno(errno),
+                "Failed to open '%s' for checksum: %s", filepath,
+                g_strerror(errno));
+    g_checksum_free(checksum);
+    return false;
+  }
+
+  guint8 buf[8192];
+  gssize len;
+  while ((len = (gssize)fread(buf, 1, sizeof(buf), fp)) > 0) {
+    g_checksum_update(checksum, buf, len);
+  }
+  if (ferror(fp)) {
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "Error reading '%s' for checksum", filepath);
+    fclose(fp);
+    g_checksum_free(checksum);
+    return false;
+  }
+  fclose(fp);
+
+  const gchar *sum = g_checksum_get_string(checksum);
+  const gboolean ok = (g_ascii_strcasecmp(sum, expected_hash) == 0);
+  if (!ok) {
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "Checksum mismatch for '%s': expected %s, got %s", filepath,
+                expected_hash, sum);
+  }
+  g_checksum_free(checksum);
+  return ok;
+}
+
+/**
+ * @brief Download a file from a URL into a secure temporary file.
+ *
+ * Initializes libcurl (once), creates a POSIX‑style temporary file via
+ * g_file_open_tmp(), and writes the downloaded data into it.
+ *
+ * @param[in]  url    The HTTP(S) URL to download.
+ * @param[out] error  Return location for a GError* on failure.
+ *                     Caller must g_clear_error() when done.
+ *
+ * @return
+ *   - On success: a newly‑allocated string containing the full path
+ *     to the temp file (free with g_free()).
+ *   - On failure: NULL and @error is set.
+ */
+gchar *download_file_to_temp(const gchar *url, GError **error) {
+  if (!curl_inited) {
+    const CURLcode ccode = curl_global_init(CURL_GLOBAL_DEFAULT);
+    if (ccode != CURLE_OK) {
+      g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                  "curl_global_init() failed: %s", curl_easy_strerror(ccode));
+      return nullptr;
+    }
+    curl_inited = true;
+  }
+
+  /* Filename template must not contain a slash */
+  const gchar *tmpl = "download-XXXXXX";
+  gchar *filename = nullptr;
+  const gint fd = g_file_open_tmp(tmpl, &filename, error);
+  if (fd < 0)
+    return nullptr;
+
+  /* Wrap the descriptor in a FILE* for curl */
+  FILE *fp = fdopen(fd, "wb");
+  if (!fp) {
+    g_set_error(error, G_IO_ERROR, g_file_error_from_errno(errno),
+                "fdopen() failed on '%s': %s", filename, g_strerror(errno));
+    close(fd);
+    g_free(filename);
+    return nullptr;
+  }
+
+  /* Set up and perform the download */
+  CURL *curl = curl_easy_init();
+  if (!curl) {
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "curl_easy_init() failed");
+    fclose(fp);
+    g_free(filename);
+    return nullptr;
+  }
+
+  curl_easy_setopt(curl, CURLOPT_URL, url);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullptr);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+
+  const CURLcode res = curl_easy_perform(curl);
+  if (res != CURLE_OK) {
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Download failed: %s",
+                curl_easy_strerror(res));
+    curl_easy_cleanup(curl);
+    fclose(fp);
+    g_free(filename);
+    return nullptr;
+  }
+
+  curl_easy_cleanup(curl);
+  fclose(fp);
+
+  return filename;
+}
+
+/**
+ * @brief Thread function for temp-file async download with optional validation.
+ * @param[in] user_data  Pointer to AsyncDownload.
+ * @return NULL
+ */
+static gpointer download_temp_thread(gpointer user_data) {
+  AsyncDownload *job = user_data;
+
+  g_atomic_pointer_set(&job->filename,
+                       download_file_to_temp(job->url, &job->error));
+  if (job->filename && job->expected_hash) {
+    if (!validate_file_checksum(job->filename, job->expected_hash,
+                                &job->error)) {
+      g_free(job->filename);
+      g_atomic_pointer_set(&job->filename, nullptr);
+    }
+  }
+  g_atomic_int_set(&job->done, TRUE);
+  return nullptr;
+}
+
+/**
+ * @brief Start an async temp-file download with optional SHA-512 validation.
+ *
+ * @param[in]  url            The HTTP(S) URL to download.
+ * @param[in]  expected_hash  Optional hex-encoded SHA-512 hash to validate;
+ * pass NULL to skip validation.
+ *
+ * @return A newly-allocated AsyncDownload*; free with
+ * download_file_to_temp_async_free().
+ */
+AsyncDownload *download_file_to_temp_async(const gchar *url,
+                                           const gchar *expected_hash) {
+  AsyncDownload *job = g_new0(AsyncDownload, 1);
+  job->url = g_strdup(url);
+  job->dir = nullptr;
+  job->overwrite = false;
+  job->expected_hash = expected_hash ? g_strdup(expected_hash) : nullptr;
+  job->done = false;
+  job->thread = g_thread_new("download-temp-thread", download_temp_thread, job);
+  return job;
+}
+
+/**
+ * @brief Derive a filename from the last segment of a URL.
+ * @param[in] url  The URL to parse.
+ * @return Newly-allocated basename (free with g_free()).
+ */
+static gchar *derive_basename_from_url(const gchar *url) {
+  GError *gerr = nullptr;
+  GUri *uri = g_uri_parse(url, G_URI_FLAGS_NONE, &gerr);
+  gchar *base;
+  if (uri) {
+    const gchar *path = g_uri_get_path(uri);
+    base = (path && *path) ? g_path_get_basename(path)
+                           : g_strdup("downloaded.file");
+    g_uri_unref(uri);
+  } else {
+    const gchar *slash = strrchr(url, '/');
+    base = (slash && *(slash + 1)) ? g_strdup(slash + 1)
+                                   : g_strdup("downloaded.file");
+  }
+  return base;
+}
+
+/**
+ * @brief Thread function that performs a directory-based download with optional
+ * overwrite and validation.
+ * @param[in] user_data  Pointer to AsyncDownload.
+ * @return NULL
+ */
+static gpointer download_dir_thread(gpointer user_data) {
+  AsyncDownload *job = user_data;
+
+  gchar *base = derive_basename_from_url(job->url);
+  gchar *filepath = g_build_filename(job->dir, base, nullptr);
+  g_free(base);
+
+  /* Check existing file */
+  if (g_file_test(filepath, G_FILE_TEST_EXISTS)) {
+    if (!job->overwrite) {
+      if (job->expected_hash) {
+        if (validate_file_checksum(filepath, job->expected_hash, &job->error)) {
+          g_atomic_pointer_set(&job->filename, g_strdup(filepath));
+          g_atomic_int_set(&job->done, true);
+          g_free(filepath);
+          return nullptr;
+        }
+        /* mismatch: proceed to re-download */
+      } else {
+        g_atomic_pointer_set(&job->filename, g_strdup(filepath));
+        g_atomic_int_set(&job->done, true);
+        g_free(filepath);
+        return nullptr;
+      }
+    } else {
+      /* remove old file before overwrite */
+      if (remove(filepath) != 0) {
+        g_set_error(&job->error, G_IO_ERROR, g_file_error_from_errno(errno),
+                    "Failed to remove '%s': %s", filepath, g_strerror(errno));
+        g_free(filepath);
+        g_atomic_int_set(&job->done, true);
+        return nullptr;
+      }
+    }
+  }
+
+  /* Download into file */
+  FILE *fp = fopen(filepath, "wb");
+  if (!fp) {
+    g_set_error(&job->error, G_IO_ERROR, g_file_error_from_errno(errno),
+                "Failed to open '%s': %s", filepath, g_strerror(errno));
+    g_free(filepath);
+    g_atomic_int_set(&job->done, true);
+    return nullptr;
+  }
+
+  CURL *curl = curl_easy_init();
+  if (!curl) {
+    g_set_error(&job->error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "curl_easy_init() failed");
+    fclose(fp);
+    g_free(filepath);
+    g_atomic_int_set(&job->done, true);
+    return nullptr;
+  }
+
+  curl_easy_setopt(curl, CURLOPT_URL, job->url);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullptr);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+
+  const CURLcode res = curl_easy_perform(curl);
+  curl_easy_cleanup(curl);
+  fclose(fp);
+
+  if (res != CURLE_OK) {
+    g_set_error(&job->error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "Download failed: %s", curl_easy_strerror(res));
+    g_free(filepath);
+  } else if (job->expected_hash) {
+    /* Validate downloaded file */
+    if (validate_file_checksum(filepath, job->expected_hash, &job->error)) {
+      g_atomic_pointer_set(&job->filename, filepath);
+    } else {
+      g_free(filepath);
+    }
+  } else {
+    g_atomic_pointer_set(&job->filename, filepath);
+  }
+
+  g_atomic_int_set(&job->done, true);
+  return nullptr;
+}
+
+/**
+ * @brief Start an async directory-based download with optional overwrite and
+ * SHA-512 validation.
+ *
+ * @param[in] url            The HTTP(S) URL to download.
+ * @param[in] dir            Directory in which to save the file.
+ * @param[in] overwrite      If FALSE and the file exists, skip download (and
+ * validate if @p expected_hash).
+ * @param[in] expected_hash  Optional hex-encoded SHA-512 hash to validate; pass
+ * NULL to skip validation.
+ *
+ * @return A newly-allocated AsyncDownload*; free with
+ * download_file_to_temp_async_free().
+ */
+AsyncDownload *download_file_to_dir_async(const gchar *url, const gchar *dir,
+                                          gboolean overwrite,
+                                          const gchar *expected_hash) {
+  AsyncDownload *job = g_new0(AsyncDownload, 1);
+  job->url = g_strdup(url);
+  job->dir = g_strdup(dir);
+  job->overwrite = overwrite;
+  job->expected_hash = expected_hash ? g_strdup(expected_hash) : nullptr;
+  job->done = false;
+  job->thread = g_thread_new("download-dir-thread", download_dir_thread, job);
+  return job;
+}
+
+/**
+ * @brief Clean up an AsyncDownload, joining the thread if needed.
+ *
+ * @param[in] job  The AsyncDownload to free.  After this call, @p job
+ *                 and its contents are invalid.
+ */
+void download_file_to_temp_async_free(AsyncDownload *job) {
+  if (!job)
+    return;
+  if (job->thread) {
+    g_thread_join(job->thread);
+  }
+  g_free(job->url);
+  g_free(job->dir);
+  g_free(job->expected_hash);
+  g_free(job->filename);
+  g_clear_error(&job->error);
+  g_free(job);
+}
+
+/**
  * @brief Performs the login operation by sending credentials to the server.
  *
  * @param username The user's login name.
@@ -416,6 +808,11 @@ static size_t write_callback(const void *contents, size_t size, size_t nmemb,
  */
 static bool do_login(const char *username, const char *password,
                      LoginData *out) {
+  if (!curl_inited) {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl_inited = true;
+  }
+
   CURL *curl = curl_easy_init();
   if (!curl) {
     g_warning("Failed to initialize cURL");
@@ -1218,6 +1615,15 @@ static gboolean launcher_init_config(GtkApplication *app) {
   parse_and_copy_string(app, launcher_config_json, "service_name",
                         service_name_global);
 
+  parse_and_copy_string(app, launcher_config_json, "x86_dotnet_runtime_url",
+                        dotnet_download_url_x86_global);
+  parse_and_copy_string(app, launcher_config_json, "x86_dotnet_runtime_hash",
+                        dotnet_download_hash_x86_global);
+  parse_and_copy_string(app, launcher_config_json, "x64_dotnet_runtime_url",
+                        dotnet_download_url_x64_global);
+  parse_and_copy_string(app, launcher_config_json, "x64_dotnet_runtime_hash",
+                        dotnet_download_hash_x64_global);
+
   torrent_download_enabled = parse_and_copy_bool(app, launcher_config_json,
                                                  "torrent_download_enabled");
 
@@ -1887,13 +2293,37 @@ static void game_wine_env_thread_watcher(GPid pid, gint wait_status,
 }
 
 /**
+ * @brief Callback used to handle exit status of dotnet runtime check.
+ * @param pid Thread PID for the wineprefix health check thread.
+ * @param wait_status A GTK-specific wait status to be checked for abnormal
+ * termination.
+ * @param user_data Our update thread data struct.
+ */
+static void game_dotnet_runtime_check_thread_watcher(GPid pid, gint wait_status,
+                                                     gpointer user_data) {
+  UpdateThreadData *td = user_data;
+  GError *err = nullptr;
+  g_atomic_int_inc(&td->dotnet_setup_done_count);
+  if (g_atomic_int_get(&td->dotnet_setup_done_count) == 2)
+    g_atomic_int_set(&td->dotnet_setup_success,
+                     g_spawn_check_wait_status(wait_status, &err));
+  if (err) {
+    g_message("Winetricks exit code %i: %s", err->code, err->message);
+    g_error_free(err);
+  }
+  g_spawn_close_pid(pid);
+}
+
+/**
  * @brief Prepare wineprefix if it does not exist and install dependencies.
  *
  * @param envp Environment variables to use when launching winetricks.
+ * @param wine_bin Path to the wine binary.
  * @param thread_data Update thread struct for GUI updates while performing the
  * task.
  */
-static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
+static bool prepare_wineprefix(gchar **envp, gchar *wine_bin,
+                               UpdateThreadData *thread_data) {
   gchar *winetricks = g_find_program_in_path("winetricks");
   if (!winetricks) {
     g_warning("Failed to find winetricks");
@@ -1913,7 +2343,7 @@ static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
 
   GError *err = nullptr;
   GPid child_pid = 0;
-  const gboolean ok =
+  gboolean ok =
       g_spawn_async(nullptr, argv_complete, envp, G_SPAWN_DO_NOT_REAP_CHILD,
                     nullptr, nullptr, &child_pid, &err);
 
@@ -1940,8 +2370,98 @@ static bool prepare_wineprefix(gchar **envp, UpdateThreadData *thread_data) {
     return false;
   }
 
+  AsyncDownload *job_x86 = download_file_to_dir_async(
+      dotnet_download_url_x86_global, configprefix_global, false,
+      dotnet_download_hash_x86_global);
+  AsyncDownload *job_x64 = download_file_to_dir_async(
+      dotnet_download_url_x64_global, configprefix_global, false,
+      dotnet_download_hash_x64_global);
+
+  while (!g_atomic_int_get(&job_x86->done) &&
+         !g_atomic_int_get(&job_x64->done)) {
+    thread_data->current_progress = 0.6;
+    thread_data->current_message = "Downloading Dotnet Runtimes";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Might take awhile the first time";
+    thread_data->enable_pulse = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_usleep(500000);
+  }
+
+  if (!g_atomic_pointer_get(&job_x86->filename) ||
+      !g_atomic_pointer_get(&job_x64->filename)) {
+    g_warning("Unable to fetch one or more runtimes: x86 (%s), x64 (%s)",
+              job_x86->filename, job_x64->filename);
+    download_file_to_temp_async_free(job_x86);
+    download_file_to_temp_async_free(job_x64);
+    return false;
+  }
+
+  GPtrArray *argv_dotnet = g_ptr_array_new();
+  g_ptr_array_add(argv_dotnet, g_strdup("/quiet"));
+  g_ptr_array_add(argv_dotnet, nullptr);
+  const auto argv_dotnet_partial = (gchar **)g_ptr_array_free(argv, false);
+
+  gchar **argv_dotnet_x86 = build_launch_argv(
+      job_x86->filename, use_gamemoderun, false, gamescope_args_global,
+      (const gchar **)argv_dotnet_partial, wine_bin);
+
+  gchar **argv_dotnet_x64 = build_launch_argv(
+      job_x64->filename, use_gamemoderun, false, gamescope_args_global,
+      (const gchar **)argv_dotnet_partial, wine_bin);
+
+  child_pid = 0;
+  ok = g_spawn_async(nullptr, argv_dotnet_x86, envp, G_SPAWN_DO_NOT_REAP_CHILD,
+                     nullptr, nullptr, &child_pid, &err);
+  GError *err2;
+  GPid child_pid2 = 0;
+  const gboolean ok2 =
+      g_spawn_async(nullptr, argv_dotnet_x64, envp, G_SPAWN_DO_NOT_REAP_CHILD,
+                    nullptr, nullptr, &child_pid2, &err2);
+
+  g_child_watch_add(child_pid,
+                    (GChildWatchFunc)game_dotnet_runtime_check_thread_watcher,
+                    thread_data);
+  g_child_watch_add(child_pid2,
+                    (GChildWatchFunc)game_dotnet_runtime_check_thread_watcher,
+                    thread_data);
+
+  while (g_atomic_int_get(&thread_data->dotnet_setup_done_count) < 2) {
+    thread_data->current_progress = 0.75;
+    thread_data->current_message = "Installing Dotnet Runtimes";
+    thread_data->current_download_progress = 0.0;
+    thread_data->current_download_message = "Might take awhile the first time";
+    thread_data->enable_pulse = true;
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, download_progress_bar_callback,
+                    ut_data_ref(thread_data), (GDestroyNotify)ut_data_unref);
+    g_usleep(500000);
+  }
+
+  download_file_to_temp_async_free(job_x86);
+  download_file_to_temp_async_free(job_x64);
   g_strfreev(argv_complete);
-  return true;
+  g_strfreev(argv_dotnet_partial);
+  g_strfreev(argv_dotnet_x86);
+  g_strfreev(argv_dotnet_x64);
+
+  if (!ok || !ok2) {
+    g_warning(
+        "One or both runtimes failed to start installation: x86 (%s), x64 (%s)",
+        err ? err->message : nullptr, err2 ? err2->message : nullptr);
+    g_clear_error(&err);
+    g_clear_error(&err2);
+    return false;
+  }
+
+  if (!thread_data->dotnet_setup_success)
+    g_warning("Dotnet setup did not succeed");
+
+  return thread_data->dotnet_setup_success;
 }
 
 /**
@@ -2018,6 +2538,7 @@ static gpointer game_launcher_thread(gpointer data) {
   thread_data->window_minimized = false;
   thread_data->wine_env_setup_done = false;
   thread_data->wine_env_setup_success = false;
+  thread_data->dotnet_setup_success = false;
   thread_data->update_data.download_progress_bar =
       GTK_PROGRESS_BAR(launch_data->ld->update_repair_download_bar);
   thread_data->update_data.progress_bar =
@@ -2140,7 +2661,7 @@ static gpointer game_launcher_thread(gpointer data) {
   GError *err = nullptr;
   gint status = 0;
 
-  if (!prepare_wineprefix(envp, thread_data)) {
+  if (!prepare_wineprefix(envp, wine_bin, thread_data)) {
     thread_data->current_progress = 0.0;
     thread_data->current_message = "Failed to Launch Game";
     thread_data->current_download_progress = 1.0;

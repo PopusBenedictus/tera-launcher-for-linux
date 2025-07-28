@@ -2163,6 +2163,11 @@ static gchar **build_wine_environment(const gchar *custom_wine_dir,
     /* WINE env is used by winetricks, WINELOADER is for the stub launcher */
     envp = g_environ_setenv(envp, "WINE", loader, true);
     envp = g_environ_setenv(envp, "WINESERVER", server, true);
+    /* This workaround is to help Shinra Meter launch without the user having to specify this on their own.
+     * We will need to likely use a build of GE-Proton that is built against _our_ environment to fix this
+     * in the future, at least for AppImages. Probably won't be fixable with the standard build except in NixOS and
+     * I'll just have to give some legacy option to toggle this on later if the user needs it... */
+    envp = g_environ_setenv(envp, "WINEDLLOVERRIDES", "icu.dll=", false);
 
     g_string_free(new_path, TRUE);
     g_string_free(new_ld, TRUE);

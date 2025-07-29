@@ -1,7 +1,26 @@
-# Dockerfile: Build environment for TERA Launcher AppImage
+# Build environment for TERA Launcher AppImage + wine-tkg
+
 FROM ubuntu:24.04
 
-# Install system packages and build dependencies
+# Frontload MinGW because wine-tkg always seems to have trouble finding it
+RUN dpkg --add-architecture i386 \
+ && apt update \
+ && DEBIAN_FRONTEND=noninteractive apt upgrade -y \
+ && DEBIAN_FRONTEND=noninteractive apt install -y \
+    gcc-mingw-w64 g++-mingw-w64 git aptitude tzdata \
+ && aptitude remove -y '?narrow(?installed,?version(deb.sury.org))'
+
+# Build wine-tkg and move it to /opt/wine-tkg
+RUN git clone https://github.com/Frogging-Family/wine-tkg-git.git \
+ && cd wine-tkg-git/wine-tkg-git \
+ && sed -i 's/_NOLIB32="false"/_NOLIB32="wow64"/' wine-tkg-profiles/advanced-customization.cfg \
+ && sed -i 's/_nomakepkg_prefix_path=""/_nomakepkg_prefix_path="\/opt"/' customization.cfg \
+ && echo '_ci_build="true"' >> customization.cfg \
+ && yes | ./non-makepkg-build.sh \
+ && mv /opt/wine-tkg-* /opt/wine-tkg \
+ && ldconfig
+
+# Install remaining dependencies for TERA Launcher
 RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y \
     build-essential cmake wine libwine-dev squashfs-tools \
     python3 python3-pip python3-setuptools file cabextract p7zip-full unzip zstd \

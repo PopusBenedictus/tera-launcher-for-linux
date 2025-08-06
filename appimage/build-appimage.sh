@@ -161,38 +161,6 @@ package_appimage() {
 }
 
 #========================================
-# Inject GE-Proton cleanly
-#========================================
-inject_ge_proton() {
-  log "Downloading GE-Proton"
-  cd "$BUILD_DIR"; wget -q -O "$GE_PROTON_TARBALL" "$GE_PROTON_URL"
-  mkdir -p "$APPDIR/usr/lib/$GE_PROTON_DEST"
-  tar -xf "$GE_PROTON_TARBALL" --strip-components=1 -C "$APPDIR/usr/lib/$GE_PROTON_DEST"; rm "$GE_PROTON_TARBALL"
-
-  APPIMAGE="$(ls "$BUILD_DIR"/*-x86_64.AppImage | head -n1)"
-  [[ -f "$APPIMAGE" ]] || error "No AppImage to inject"
-  log "Injecting into $(basename "$APPIMAGE")"
-
-  INJ_EXTRACT="$BUILD_DIR/inject-squashfs"
-  rm -rf "$INJ_EXTRACT"; mkdir -p "$INJ_EXTRACT"
-  (cd "$INJ_EXTRACT"; export APPIMAGE_EXTRACT_AND_RUN=1; "$APPIMAGE" --appimage-extract; unset APPIMAGE_EXTRACT_AND_RUN)
-  cp -r "$APPDIR/usr/lib/$GE_PROTON_DEST" "$INJ_EXTRACT/squashfs-root/usr/lib/"
-
-  # Use extracted appimagetool run to avoid FUSE
-  AI_EXTRACT="$TOOLS_DIR/appimagetool-squashfs"
-  rm -rf "$AI_EXTRACT"; "$APPIMAGETOOL" --appimage-extract; mv squashfs-root "$AI_EXTRACT"
-  AI_RUN="$AI_EXTRACT/AppRun"
-
-  log "Re-packing AppImage"
-  ARCH=x86_64 "$AI_RUN" "$INJ_EXTRACT/squashfs-root" "$APPIMAGE"
-
-  mv "$APPIMAGE" "$SRC_DIR/"
-  log "Done: moved $(basename "$APPIMAGE") to $SRC_DIR"
-
-  rm -rf "$INJ_EXTRACT"
-}
-
-#========================================
 # Main
 #========================================
 main() {

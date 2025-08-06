@@ -1,6 +1,6 @@
 # Build environment for TERA Launcher AppImage + wine-tkg
 
-FROM ubuntu:24.04
+FROM ubuntu:25.04
 
 # Frontload MinGW because wine-tkg always seems to have trouble finding it
 RUN dpkg --add-architecture i386 \

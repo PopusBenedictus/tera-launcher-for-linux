@@ -1,0 +1,3 @@
+[submodule "appimage/plugins/linuxdeploy-plugin-gtk"]
+	path = appimage/plugins/linuxdeploy-plugin-gtk
+	url = https://github.com/linuxdeploy/linuxdeploy-plugin-gtk.git

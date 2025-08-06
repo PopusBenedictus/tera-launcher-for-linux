@@ -29,4 +29,6 @@ result
 result/
 
 .direnv/
-.idea/
+
+!appimage/plugins/linuxdeploy-plugin-gtk
+!appimage/plugins/linuxdeploy-plugin-gtk/*

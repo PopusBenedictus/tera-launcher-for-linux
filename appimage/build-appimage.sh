@@ -147,13 +147,44 @@ download_tools() {
 package_appimage() {
   log "Packaging initial AppImage"
   LDP_EXTRACT="$BUILD_DIR/linuxdeploy-squashfs"
-  rm -rf "$LDP_EXTRACT"; "$LINUXDEPLOY" --appimage-extract; mv squashfs-root "$LDP_EXTRACT"
+  rm -rf "$LDP_EXTRACT"
+  "$LINUXDEPLOY" --appimage-extract
+  mv squashfs-root "$LDP_EXTRACT"
   cp "$PLUGIN_GTK" "$LDP_EXTRACT/"
-  mapfile -t execs < <(find "$APPDIR/usr/bin" -maxdepth 1 -type f -executable ! -name "stub_launcher.exe*" ! -name "winetricks" ! -name "7z*" ! -name "unzstd" ! -name "zstdcat" ! -name "zstdmt" ! -name "zstdless" ! -name "zstdgrep")
-  args=(--appdir "$APPDIR" -d "$APPDIR/tera-launcher.desktop" -i "$APPDIR/tera-launcher.png" --plugin gtk --output appimage)
-  for bin in "${execs[@]}"; do args+=( -e "$bin" ); done
+
+  # Collect executables from both the AppDir and the wine-tkg bin directory
+  mapfile -t execs < <(find \
+    "$APPDIR/usr/bin" \
+    "$APPDIR/usr/local/bin" \
+    "$APPDIR/opt/wine-tkg/bin" \
+    -maxdepth 1 -type f -executable \
+    -exec sh -c 'readelf -h "$1" >/dev/null 2>&1' _ {} \; \
+    -print
+  )
+
+  args=(
+    --appdir "$APPDIR"
+    -d "$APPDIR/tera-launcher.desktop"
+    -i "$APPDIR/tera-launcher.png"
+    -l "/lib/x86_64-linux-gnu/libgpg-error.so.0"
+    --plugin gtk
+    --output appimage
+  )
+
+  for bin in "${execs[@]}"; do
+    args+=( -e "$bin" )
+  done
+
   printf "Will bundle executables: %s\n" "${execs[*]}"
-  pushd "$LDP_EXTRACT" >/dev/null; ./AppRun "${args[@]}"; GENERATED=$(ls *.AppImage | head -n1) || error "No AppImage generated"; mv "$GENERATED" "$BUILD_DIR/"; log "Moved $GENERATED to $BUILD_DIR"; popd >/dev/null; rm -rf "$LDP_EXTRACT"
+
+  pushd "$LDP_EXTRACT" >/dev/null
+    ./AppRun "${args[@]}"
+    GENERATED=$(ls *.AppImage | head -n1) || error "No AppImage generated"
+    mv "$GENERATED" "$SRC_DIR/"
+    log "Done: moved $(basename "$GENERATED") to $SRC_DIR"
+  popd >/dev/null
+
+  rm -rf "$LDP_EXTRACT"
 }
 
 #========================================
@@ -161,7 +192,7 @@ package_appimage() {
 #========================================
 main() {
   log "Settings: CLONE_REPO=$CLONE_REPO, BRANCH=$BRANCH, GE_PROTON_VERSION=$GE_PROTON_VERSION"
-  prepare_dirs; prepare_source; build_launcher; copy_binaries_and_assets; download_tools; package_appimage; inject_ge_proton
+  prepare_dirs; prepare_source; build_launcher; copy_binaries_and_assets; download_tools; package_appimage
 }
 
 main "$@"

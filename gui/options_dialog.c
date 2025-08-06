@@ -772,14 +772,14 @@ void config_read_from_ini(void) {
 
 #undef READ_STRING_KEY
   /* If wine_base_dir is unset in AppImage mode or contains a tmp path,
-   * the default wine dir is our bundled GE-Proton */
+   * the default wine dir is our bundled wine-tkg */
   if (appimage_mode && (strlen(wine_base_dir_global) == 0 ||
                         strstr(wine_base_dir_global, "/tmp/.") != nullptr)) {
     size_t needed;
     if (!str_copy_formatted(wine_base_dir_global, &needed,
                             FIXED_STRING_FIELD_SZ, "%s/%s", appdir_global,
-                            "usr/lib/ge-proton/files")) {
-      g_error("Unable to specify path to bundled GE-Proton runtime. Cannot "
+                            "opt/wine-tkg")) {
+      g_error("Unable to specify path to bundled wine-tkg runtime. Cannot "
               "continue.");
     }
   }

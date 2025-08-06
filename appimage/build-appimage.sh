@@ -123,7 +123,8 @@ copy_binaries_and_assets() {
 download_tools() {
   log "Downloading Winetricks into AppDir"
   wget -q -O winetricks https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
-  chmod +x winetricks; mv winetricks "$APPDIR/usr/bin/"
+  chmod +x winetricks
+  mv winetricks "$APPDIR/usr/bin/"
 
   log "Downloading linuxdeploy and GTK plugin"
   wget -q -O "$LINUXDEPLOY" "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/$(basename $LINUXDEPLOY)"

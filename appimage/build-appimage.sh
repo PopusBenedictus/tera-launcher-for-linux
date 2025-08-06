@@ -126,13 +126,20 @@ download_tools() {
   chmod +x winetricks
   mv winetricks "$APPDIR/usr/bin/"
 
-  log "Downloading linuxdeploy and GTK plugin"
-  wget -q -O "$LINUXDEPLOY" "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/$(basename $LINUXDEPLOY)"
-  wget -q -O "$PLUGIN_GTK" "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh"
-  chmod +x "$LINUXDEPLOY" "$PLUGIN_GTK"
+  log "Downloading linuxdeploy"
+  wget -q -O "$LINUXDEPLOY" "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/$(basename "$LINUXDEPLOY")"
+  chmod +x "$LINUXDEPLOY"
+
+  log "Copying linuxdeploy-plugin-gtk from submodule"
+  PLUGIN_GTK_SOURCE="$SRC_DIR/appimage/plugins/linuxdeploy-plugin-gtk/linuxdeploy-plugin-gtk.sh"
+  if [[ ! -f "$PLUGIN_GTK_SOURCE" ]]; then
+    error "Missing linuxdeploy-plugin-gtk submodule at $PLUGIN_GTK_SOURCE"
+  fi
+  cp "$PLUGIN_GTK_SOURCE" "$TOOLS_DIR/linuxdeploy-plugin-gtk"
+  chmod +x "$TOOLS_DIR/linuxdeploy-plugin-gtk"
 
   log "Downloading appimagetool"
-  wget -q -O "$APPIMAGETOOL" "https://github.com/AppImage/AppImageKit/releases/download/continuous/$(basename $APPIMAGETOOL)"
+  wget -q -O "$APPIMAGETOOL" "https://github.com/AppImage/AppImageKit/releases/download/continuous/$(basename "$APPIMAGETOOL")"
   chmod +x "$APPIMAGETOOL"
 }
 

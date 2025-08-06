@@ -15,6 +15,8 @@ RUN git clone https://github.com/Frogging-Family/wine-tkg-git.git \
  && cd wine-tkg-git/wine-tkg-git \
  && sed -i 's/_NOLIB32="false"/_NOLIB32="wow64"/' wine-tkg-profiles/advanced-customization.cfg \
  && sed -i 's/_nomakepkg_prefix_path=""/_nomakepkg_prefix_path="\/opt"/' customization.cfg \
+ && sed -i 's/_plain_version=""/_plain_version="10.12"/' customization.cfg \
+ && sed -i 's/_staging_version=""/_staging_version="v10.12"/' customization.cfg \
  && echo '_ci_build="true"' >> customization.cfg \
  && yes | ./non-makepkg-build.sh \
  && mv /opt/wine-tkg-* /opt/wine-tkg \

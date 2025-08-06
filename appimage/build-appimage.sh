@@ -70,7 +70,8 @@ prepare_dirs() {
   "$APPDIR/usr/bin" \
   "$APPDIR/usr/lib" \
   "$APPDIR/usr/share/glib-2.0/schemas" \
-  "$APPDIR/config/gtk-4.0"
+  "$APPDIR/config/gtk-4.0" \
+  "$APPDIR/opt"
 }
 
 #========================================
@@ -107,6 +108,7 @@ build_launcher() {
 copy_binaries_and_assets() {
   log "Copying launcher binaries and assets"
   cp "$BUILD_DIR/bin/"* "$APPDIR/usr/bin/"
+  cp -r "/opt/wine-tkg" "$APPDIR/opt/"
   echo "[Settings]" > "$APPDIR/config/gtk-4.0/settings.ini"
   copy_tool() { local tool="$1"; log "Including system tool: $tool"; cp "$(command -v $tool)" "$APPDIR/usr/bin/"; }
   for t in cabextract unzip bsdtar 7z 7za 7zr pzstd unzstd zstd zstdcat zstdgrep zstdless zstdmt sh bash; do copy_tool "$t"; done

@@ -89,6 +89,22 @@ prepare_source() {
 }
 
 #========================================
+# Update wine-wrapper script default wineprefix value
+#========================================
+update_wine_wrapper() {
+  CONFIG_JSON="$SRC_DIR/gui/gtk-assets/launcher-config.json"
+  WRAPPER="$APPDIR/opt/wine-tkg/bin/wine"
+  WINE_PFX_PATH=$(jq -r '.wine_prefix_name' "$CONFIG_JSON")
+  sed -i "2i\
+  # --- auto-injected: default WINEPREFIX from launcher-config.json ---\n\
+  if [ -z \"\$WINEPREFIX\" ]; then\n\
+    export WINEPREFIX=\"$WINE_PFX_PATH\"\n\
+  fi\n\
+  # ---------------------------------------------------------------" \
+      "$WRAPPER"
+}
+
+#========================================
 # Build the launcher
 #========================================
 build_launcher() {
@@ -105,9 +121,11 @@ copy_binaries_and_assets() {
   log "Copying launcher binaries and assets"
   cp "$BUILD_DIR/bin/"* "$APPDIR/usr/bin/"
   cp -r "/opt/wine-tkg" "$APPDIR/opt/"
+  mv "$APPDIR/opt/wine-tkg/bin/wine" "$APPDIR/opt/wine-tkg/bin/wine.real"
+  cp "$SRC_DIR/appimage/assets/wine-wrapper" "$APPDIR/opt/wine-tkg/bin/wine"
   echo "[Settings]" > "$APPDIR/config/gtk-4.0/settings.ini"
   copy_tool() { local tool="$1"; log "Including system tool: $tool"; cp "$(command -v $tool)" "$APPDIR/usr/bin/"; }
-  for t in cabextract unzip bsdtar 7z 7za 7zr pzstd unzstd zstd zstdcat zstdgrep zstdless zstdmt sh bash; do copy_tool "$t"; done
+  for t in cabextract unzip bsdtar 7z 7za 7zr pgrep pkill pidof pzstd unzstd zstd zstdcat zstdgrep zstdless zstdmt sh bash; do copy_tool "$t"; done
   cp -r /usr/lib/7zip "$APPDIR/usr/lib/"
   for asset in tera-launcher.desktop tera-launcher.png AppRun; do
     cp "$SRC_DIR/appimage/assets/$asset" "$APPDIR/$asset"
@@ -191,8 +209,14 @@ package_appimage() {
 # Main
 #========================================
 main() {
-  log "Settings: CLONE_REPO=$CLONE_REPO, BRANCH=$BRANCH, GE_PROTON_VERSION=$GE_PROTON_VERSION"
-  prepare_dirs; prepare_source; build_launcher; copy_binaries_and_assets; download_tools; package_appimage
+  log "Settings: CLONE_REPO=$CLONE_REPO, BRANCH=$BRANCH"
+  prepare_dirs
+  prepare_source
+  build_launcher
+  copy_binaries_and_assets
+  update_wine_wrapper
+  download_tools
+  package_appimage
 }
 
 main "$@"

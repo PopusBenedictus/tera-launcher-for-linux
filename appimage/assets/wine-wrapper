@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+# Do not perform wine prefix update if there is a process running out of it already
+in_use=false
+for pid in $(pgrep -u "$USER" -x wineserver); do
+  if grep -Fq "WINEPREFIX=${PREFIX}" /proc/$pid/environ 2>/dev/null; then
+    in_use=true
+    break
+  fi
+done
+
+if ! $in_use; then
+  echo "Updating wineprefix in the background"
+  WINEDLLOVERRIDES="winemenubuilder.exe=d;mscoree=d;" \
+    wineboot --update >/dev/null 2>&1
+fi
+
+exec "$APPDIR/opt/wine-tkg/bin/wine.real" "$@"

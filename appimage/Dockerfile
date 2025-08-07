@@ -24,7 +24,7 @@ RUN git clone https://github.com/Frogging-Family/wine-tkg-git.git \
 
 # Install remaining dependencies for TERA Launcher
 RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y \
-    build-essential cmake wine libwine-dev squashfs-tools \
+    build-essential cmake wine libwine-dev squashfs-tools procps jq \
     python3 python3-pip python3-setuptools file cabextract p7zip-full unzip zstd \
     libgtk-4-dev libcurl4-openssl-dev libssl-dev python3-gi gir1.2-gtk-4.0 \
     libsqlite3-dev libjansson-dev libprotobuf-c-dev adwaita-icon-theme \

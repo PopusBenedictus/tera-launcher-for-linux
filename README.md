@@ -1,3 +1,12 @@
+# OUT OF SUPPORT UNTIL FURTHER NOTICE
+
+Unfortunately, I do not have the time to update this version of the launcher any further. I do have another project in the works, but I don't see it being completed any time soon.
+
+If you're interested in developing your own launcher, go look at the "TERA API" project for API reference for launcher API specs. You can also use the "stub" from this project 
+pretty much as is to handle the Win32 comms with the TERA game client. That part has to run in the same environment as the game.
+
+I will continue to update it for TERA Starscape, delivered as an AppImage as breakages occur. If/when I finish the other project I will push up a separate project repository for that.
+
 # TERA Launcher for Linux
 
 A community-created Linux launcher for TERA Online. This project is a **port** (in the loosest terms imaginable) of a closed-source TERA launcher ([original here](https://github.com/justkeepquiet/tera-launcher)) designed to work on retail servers. It utilizes the original launcher's graphical assets to provide a comparable experience for Linux users. By integrating Wine, it allows you to launch the TERA Online game client seamlessly on various Linux distributions.
